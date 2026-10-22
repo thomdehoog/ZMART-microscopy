@@ -1,6 +1,6 @@
 """The pipeline, run through the ZMART analysis engine, on a small image of two bright objects.
 
-Needs the analysis environment: ``python environments/setup_env.py --step classical``.
+Needs the analysis environment: ``conda env create -f environments/classical.yml``.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ ENVIRONMENT = "ZMART--target_acquisition_for_coders--classical"
 
 pytestmark = pytest.mark.skipif(
     not env_exists(get_conda_info(), ENVIRONMENT),
-    reason=f"{ENVIRONMENT} is not made yet: python environments/setup_env.py --step classical",
+    reason=f"{ENVIRONMENT} is not made yet: conda env create -f environments/classical.yml",
 )
 
 

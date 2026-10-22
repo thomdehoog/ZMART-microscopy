@@ -48,7 +48,7 @@ To run the analysis in the target acquisition template, install the ZMART analys
 
 ```bash
 pip install "zmart-analysis @ git+https://github.com/ZMB-UZH/ZMART-analysis@v0.6.0rc3"
-python analysis/environments/setup_env.py --step classical
+conda env create -f analysis/environments/classical.yml
 ```
 
 ## 5. Run

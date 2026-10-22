@@ -1,0 +1,12 @@
+# The environment the analysis steps run in. Every package comes from the
+# lock file classical.txt, at one version, so it is the same on every
+# computer. conda-forge only.
+name: ZMART--target_acquisition_for_coders--classical
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - -r classical.txt

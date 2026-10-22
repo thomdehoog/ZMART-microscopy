@@ -23,10 +23,10 @@ The object table, under `["object_analysis"]["objects"]["properties"]`: one list
 The steps run in `ZMART--target_acquisition_for_coders--classical`, built from the lock file `environments/classical.txt`, so every package is at one version:
 
 ```bash
-python environments/setup_env.py --step classical
+conda env create -f environments/classical.yml
 ```
 
-`environments/clean_env.py` removes it again. To move to newer packages, build with `--unpinned`, check it, and write a new lock file with `pip freeze`.
+`conda env remove -n ZMART--target_acquisition_for_coders--classical` removes it again. To move to newer packages, install them in a new environment, check it with the tests, and write a new lock file with `pip freeze`.
 
 ## Tests
 
