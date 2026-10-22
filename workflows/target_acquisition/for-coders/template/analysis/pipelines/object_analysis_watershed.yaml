@@ -6,13 +6,9 @@
 #
 # What to submit with each job (see README.md, "Input"):
 #
-#   image_path             an OME-Zarr position or an OME-TIFF
-#   tile_id                e.g. ["R0", 3, 7]
-#   tile_stage_xy_um       the tile's stage position
-#   tile_z_um              capture height; optional
-#   source_pixel_size_um   [x, y]
-#   source_image_size_px   [nx, ny]
-#   image_to_stage         the 2x2 matrix from image to stage axes
+#   image_path             the OME-Zarr position the driver saved; its pixel
+#                          size and where it lies on the stage come from its
+#                          metadata
 #   channels               up to three channel indices; null for all
 #
 # What comes back, under `object_analysis`: the object table, one row per

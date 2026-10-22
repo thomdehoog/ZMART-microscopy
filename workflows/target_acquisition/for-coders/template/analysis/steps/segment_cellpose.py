@@ -698,16 +698,18 @@ def _write_checkpoint(detection: dict, raw_masks, given: dict, images: dict, par
     record = {
         "image_path": str(given["image_path"]),
         "image_sha256": images["sha256"],
-        "tile_id": given["tile_id"],
-        "tile_stage_xy_um": given["tile_stage_xy_um"],
+        # Geometry as the caller gave it; for an OME-Zarr image alone it comes
+        # from the store, in build_object_table, and is not needed here.
+        "tile_id": given.get("tile_id"),
+        "tile_stage_xy_um": given.get("tile_stage_xy_um"),
         "tile_z_um": given.get("tile_z_um"),
         "z_selection": images["z_selection"],
         **(
             {"synthetic_pixels": given["synthetic_pixels"]} if given.get("synthetic_pixels") else {}
         ),
-        "source_pixel_size_um": given["source_pixel_size_um"],
+        "source_pixel_size_um": given.get("source_pixel_size_um"),
         "source_image_size_px": given.get("source_image_size_px", detection["image_size_px"]),
-        "image_to_stage": given["image_to_stage"],
+        "image_to_stage": given.get("image_to_stage"),
         "segmentation_params": detection["segmentation_params"],
         "segmentation_params_hash": detection["segmentation_params_hash"],
         "n_objects": detection["n_objects"],

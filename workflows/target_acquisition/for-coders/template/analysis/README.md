@@ -12,7 +12,7 @@ Finds the objects in an overview image, measures each one, and returns a table w
 {"image_path": "path/to/image.ome.zarr"}
 ```
 
-An OME-Zarr image is enough: the pixel size and where the image lies on the stage come from its metadata. A TIFF also needs `tile_stage_xy_um` and `source_pixel_size_um`.
+The OME-Zarr position the driver saved. The pixel size and where the image lies on the stage come from its metadata.
 
 ## Output
 

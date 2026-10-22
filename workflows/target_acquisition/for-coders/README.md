@@ -2,7 +2,7 @@
 
 ## The workflow
 
-This workflow consists of a template [Jupyter notebook](target_acquisition_template.ipynb) that runs a target acquisition workflow: it images overview positions, finds targets in them, and images the targets.
+This workflow consists of a template [Jupyter notebook](template/target_acquisition_template.ipynb) that runs a target acquisition workflow: it images overview positions, finds targets in them, and images the targets.
 
 It is intentionally **a simplified example** and **not an end-to-end solution**. It is meant as a starting point to develop your own workflow with. For an end-to-end example, we refer to the [target acquisition workflow for non-coders](../for-non-coders/).
 
@@ -16,7 +16,7 @@ Clone the repository:
 
 ```bash
 git clone -b example-workflows https://github.com/ZMB-UZH/ZMART-microscopy
-cd ZMART-microscopy/workflows/target_acquisition/for-coders
+cd ZMART-microscopy/workflows/target_acquisition/for-coders/template
 ```
 
 Create the base environment, and activate it:
@@ -50,7 +50,7 @@ Register the driver with it once: [how](https://github.com/ZMB-UZH/ZMART-control
 
 ### 4. Install ZMART analysis for the target acquisition template
 
-To run the analysis in the target acquisition template, install the ZMART analysis engine and the environment its [`analysis`](analysis/) runs in:
+To run the analysis in the target acquisition template, install the ZMART analysis engine and the environment its [`analysis`](template/analysis/) runs in:
 
 ```bash
 pip install "zmart-analysis @ git+https://github.com/ZMB-UZH/ZMART-analysis@v0.6.0rc4"
@@ -61,6 +61,6 @@ conda env create -f analysis/environments/classical.yml
 
 ```bash
 conda activate zmart-for-coders
-cd ZMART-microscopy/workflows/target_acquisition/for-coders
+cd ZMART-microscopy/workflows/target_acquisition/for-coders/template
 jupyter lab target_acquisition_template.ipynb
 ```
