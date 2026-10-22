@@ -6,7 +6,7 @@ This workflow consists of a template [Jupyter notebook](target_acquisition_templ
 
 It is intentionally a simplified example, meant to illustrate how to use the [ZMART Controller](https://github.com/ZMB-UZH/ZMART-controller) for such a workflow.
 
-As an example, the targets are dividing cells, found with [ZMART analysis](https://github.com/ZMB-UZH/ZMART-analysis). You can choose your own targets or use your own analysis.
+As an example, we filter out dividing cells with a simple metric, using analysis done with the [ZMART analysis](https://github.com/ZMB-UZH/ZMART-analysis) pipeline. You can choose your own targets or use your own analysis.
 
 ## Install
 
