@@ -26,7 +26,7 @@ Install the driver:
 pip install "zmart-drivers[leica] @ git+https://github.com/ZMB-UZH/ZMART-drivers@v0.7.0b3"
 ```
 
-Configure it once per microscope: set the travel limits, image orientation, objective calibration and zero point with the notebooks in its `driver_setup` folder.
+Configure it once per microscope: [how](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b3/zmart_drivers/leica/stellaris/navigator_expert/README.md#3-configuration).
 
 You can stop here: the driver works on its own. See the [ZMART driver's manual for the Leica STELLARIS through Navigator Expert](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b3/zmart_drivers/leica/stellaris/navigator_expert/README.md). We do not provide a full workflow for this.
 
