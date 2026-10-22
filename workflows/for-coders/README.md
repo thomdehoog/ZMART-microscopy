@@ -6,31 +6,21 @@ Image overview positions, find targets, and image them again, from a [Jupyter no
 
 ## 1. Install (once per computer)
 
-Get this repository:
+Clone the repository:
 
 ```bash
 git clone -b example-workflows https://github.com/ZMB-UZH/ZMART-microscopy
-```
-
-Go into it:
-
-```bash
 cd ZMART-microscopy
 ```
 
-Make the environment:
+Create the conda environment for the notebook, and activate it:
 
 ```bash
 conda env create -f workflows/for-coders/environment.yml
-```
-
-Activate it:
-
-```bash
 conda activate zmart-coders
 ```
 
-Make the environment the analysis runs in:
+Create the conda environment for the image analysis. The analysis runs in an environment of its own, so its tools never clash with the notebook's:
 
 ```bash
 python -m zmart_analysis.environments object_analysis --step classical
