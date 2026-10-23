@@ -21,12 +21,21 @@ git clone -b example-workflows https://github.com/ZMB-UZH/ZMART-microscopy
 cd ZMART-microscopy/workflows/target_acquisition/for-non-coders
 ```
 
-Create the base environment, and activate it. It holds the ZMART Interface, with the ZMART Controller, Viewer and Analysis it was tested with:
+Create the base environment, and activate it:
 
 ```bash
 conda env create -f environment.yml
 conda activate zmart-for-non-coders
 ```
+
+This installs the ZMART Interface, and with it the parts it was tested with:
+
+| Part | Version |
+|---|---|
+| [ZMART Interface](https://github.com/ZMB-UZH/ZMART-interface) | 0.1.0rc5 |
+| [ZMART Viewer](https://github.com/ZMB-UZH/ZMART-viewer) | 0.5.0rc8 |
+| [ZMART Controller](https://github.com/ZMB-UZH/ZMART-controller) | 0.4.0rc7 |
+| [ZMART Analysis](https://github.com/ZMB-UZH/ZMART-analysis) (the engine) | 0.6.0rc5 |
 
 ### 2. Install the ZMART driver for your microscope, and configure it
 
