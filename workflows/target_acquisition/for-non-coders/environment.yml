@@ -1,0 +1,13 @@
+# The base environment of the target acquisition workflow for non-coders: Python
+# and the ZMART Interface, which brings the ZMART Controller, Viewer and Analysis
+# at the versions it was tested with. conda-forge only.
+name: zmart-for-non-coders
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - pip
+  - git
+  - pip:
+      - zmart-interface @ git+https://github.com/ZMB-UZH/ZMART-interface@v0.1.0rc5
