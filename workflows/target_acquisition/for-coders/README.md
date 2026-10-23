@@ -32,7 +32,7 @@ Install the driver for your microscope, and configure it once:
 
 | Microscope | Connection | Install the driver | Manual |
 |---|---|---|---|
-| Leica STELLARIS | LAS X Navigator Expert | `pip install "zmart-drivers[leica] @ git+https://github.com/ZMB-UZH/ZMART-drivers@v0.7.0b5"` | [manual](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b5/zmart_drivers/leica/stellaris/navigator_expert/README.md) |
+| Leica STELLARIS | LAS X Navigator Expert | `pip install "zmart-drivers[leica] @ git+https://github.com/ZMB-UZH/ZMART-drivers@v0.7.0b6"` | [manual](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b6/zmart_drivers/leica/stellaris/navigator_expert/README.md) |
 
 You can stop here if you want just the driver: it works on its own, as its manual describes.
 
@@ -43,10 +43,10 @@ However, we do not provide a template target acquisition workflow for this. For 
 We provide a template workflow for target acquisition through the vocabulary of the ZMART Controller. The controller provides one unified language for every microscope with a ZMART driver, so workflows built on it are interoperable, and easier to test and share.
 
 ```bash
-pip install "zmart-controller @ git+https://github.com/ZMB-UZH/ZMART-controller@v0.4.0rc6"
+pip install "zmart-controller @ git+https://github.com/ZMB-UZH/ZMART-controller@v0.4.0rc7"
 ```
 
-Register the driver with it once: [how](https://github.com/ZMB-UZH/ZMART-controller/blob/v0.4.0rc6/docs/plug_in_a_driver/README.md).
+Register the driver with it once: [how](https://github.com/ZMB-UZH/ZMART-controller/blob/v0.4.0rc7/docs/plug_in_a_driver/README.md).
 
 ### 4. Install ZMART analysis for the target acquisition template
 
