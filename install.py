@@ -18,9 +18,10 @@ What it does, in order, and why:
    (recipes and steps the engine runs) and the interface's browser walk
    (with the Node.js tools it needs, installed by ``npm ci``).
 4. **The analysis environments.** Focus scoring and object detection run in
-   conda environments of their own. Each is checked with its workflow's
-   ``setup_env.py --check`` and created only when the check fails, so an
-   environment made earlier on this computer is reused.
+   conda environments of their own. Each is created from its workflow's
+   conda environment file (``environments/<step>.yml``) when it does not exist
+   yet, so an environment made earlier on this computer is reused; the
+   checks in ``tests/`` then run the analysis in it.
 5. **The browser.** Playwright's Chromium, which the walk drives.
 
 At the end it writes ``work/install-record.json``: which commit of each block
@@ -70,9 +71,9 @@ GITHUB = "https://github.com/ZMB-UZH"
 #: default branch (``main``) is installed.
 BLOCKS = {
     "zmart-controller": f"zmart-controller @ git+{GITHUB}/ZMART-controller",
-    # The Leica and ZEISS extras bring what those drivers import, so that every
-    # driver can be plugged in and checked.
-    "zmart-drivers": f"zmart-drivers[leica,zeiss] @ git+{GITHUB}/ZMART-drivers",
+    # The Leica extra brings what the Leica driver imports, so that it can be
+    # plugged in and checked.
+    "zmart-drivers": f"zmart-drivers[leica] @ git+{GITHUB}/ZMART-drivers",
     "zmart-viewer": f"zmart-viewer @ git+{GITHUB}/ZMART-viewer",
     "zmart-analysis": f"zmart-analysis @ git+{GITHUB}/ZMART-analysis",
     # The dev extra brings pytest and the OME reader the interface's own
@@ -257,35 +258,27 @@ def clone(work: Path, env: dict, branches: dict[str, str]) -> None:
             run(["git", "clone", "--branch", branch, f"{GITHUB}/{name}", target], env=env)
 
 
-def analysis_environments(python: Path, work: Path, steps: str, env: dict) -> list[dict]:
-    """Check each analysis environment the walk needs, and make the ones that are missing.
+def analysis_environments(work: Path, steps: str, env: dict) -> list[dict]:
+    """Make each analysis environment the walk needs from its conda environment file.
 
-    An environment that exists but fails its check (made earlier, before its
-    workflow asked for one more package) is never removed here: removing an
-    environment is the owner's decision. It is reported, with the command
-    that removes it so the next install can make it afresh, and the install
-    carries on; the walk may still pass if the missing package is one it does
-    not use.
+    An environment that already exists is reused, never removed: removing an
+    environment is the owner's decision. The record says how to make one
+    afresh; the checks in ``tests/`` run the analysis in it.
     """
     made = []
     for pair in filter(None, (one.strip() for one in steps.split(","))):
         workflow, step = pair.split(":")
-        folder = work / "ZMART-analysis" / "workflows" / workflow / "environments"
+        described = work / "ZMART-analysis" / "workflows" / workflow / "environments" / f"{step}.yml"
         name = f"ZMART--{workflow}--{step}"
-        print(f"{name}: checking whether it exists and works")
-        if run([python, folder / "setup_env.py", "--step", step, "--check"], env=env,
-               check=False) == 0:
-            made.append({"environment": name, "action": "reused (its check passed)"})
-        elif environment_prefix(env["CONDA_EXE"], name) is not None:
+        if environment_prefix(env["CONDA_EXE"], name) is not None:
             made.append({
                 "environment": name,
-                "action": "exists but FAILS its check; left as it is",
-                "to_make_it_afresh": f"python {folder / 'clean_env.py'} --step {step}, "
-                                     "then run install.py again",
+                "action": "reused",
+                "to_make_it_afresh": f"conda env remove -n {name}, then run install.py again",
             })
         else:
-            run([python, folder / "setup_env.py", "--step", step], env=env)
-            made.append({"environment": name, "action": "created"})
+            run([env["CONDA_EXE"], "env", "create", "-f", described], env=env)
+            made.append({"environment": name, "action": f"created from {described.name}"})
     return made
 
 
@@ -349,7 +342,7 @@ def main(argv: list[str] | None = None) -> int:
     analysis = []
     if not args.no_analysis_envs:
         say("the analysis environments")
-        analysis = analysis_environments(python, work, args.analysis_steps, env)
+        analysis = analysis_environments(work, args.analysis_steps, env)
 
     if not args.no_walk_tools:
         say("the walk's Node.js tools and browser")

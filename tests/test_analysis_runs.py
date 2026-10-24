@@ -58,7 +58,7 @@ def the_focus_environment():
 
     if not env_exists(get_conda_info(), "ZMART--focus--main"):
         pytest.fail("the conda environment ZMART--focus--main is missing; "
-                    "install.py makes it (or setup_env.py in the focus workflow)")
+                    "install.py makes it (or conda env create -f focus/environments/main.yml)")
 
 
 def test_the_engine_scores_a_focus_stack_in_the_focus_environment(
@@ -99,8 +99,8 @@ def test_the_interface_reaches_the_engine_the_way_its_focus_map_does(
     session. This is the call its focus map makes for every point.
     """
     monkeypatch.setenv("ZMART_ANALYSIS_WORKFLOWS", str(checkout("ZMART-analysis")))
-    from zmart_interface.parts.analysis.warm import Analysis
-    from zmart_interface.parts.analysis.workflows import workflows_root
+    from zmart_interface.workflows.target_acquisition.analysis.warm import Analysis
+    from zmart_interface.workflows.target_acquisition.analysis.workflows import workflows_root
 
     assert workflows_root() == (checkout("ZMART-analysis") / "workflows").resolve()
     analysis = Analysis(output=str(a_stack_sharp_at_108_um.parent))

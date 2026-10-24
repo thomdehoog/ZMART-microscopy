@@ -94,7 +94,7 @@ def test_the_interface_accepts_the_installed_viewer():
     The interface refuses a viewer outside the versions it was tested with,
     and says so only when a run is connected. Asking here finds it before.
     """
-    from zmart_interface.parts.storage import viewer_service
+    from zmart_interface.workflows.target_acquisition.storage import viewer_service
 
     provenance = viewer_service.viewer_provenance()
     viewer_service._the_viewers_make_server()
