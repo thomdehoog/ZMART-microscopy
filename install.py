@@ -97,11 +97,26 @@ def say(text: str) -> None:
     print(f"\n== {text}", flush=True)
 
 
+def program(name: str, env: dict | None) -> str:
+    """Where the program *name* is, looked up on the PATH of *env*.
+
+    On Windows a program is looked up on the PATH this process started with,
+    not on the one it is handed in *env*. install.py runs from another
+    environment, so the integration environment's own npm and git would not
+    be found there. Without *env*, or when it is not found, *name* is kept.
+    """
+    if env is None:
+        return name
+    return shutil.which(name, path=env.get("PATH")) or name
+
+
 def run(command: list[str], *, env: dict | None = None, cwd: Path | None = None,
         check: bool = True) -> int:
     """Run one command, showing it first, and stop the install if it fails."""
     print("$ " + " ".join(str(part) for part in command), flush=True)
-    done = subprocess.run([str(part) for part in command], env=env, cwd=cwd)
+    command = [str(part) for part in command]
+    command[0] = program(command[0], env)
+    done = subprocess.run(command, env=env, cwd=cwd)
     if check and done.returncode != 0:
         sys.exit(f"install stopped: the command above failed (exit {done.returncode})")
     return done.returncode
@@ -292,8 +307,8 @@ def walk_tools(prefix: Path, work: Path, env: dict) -> None:
 
 
 def commit_of(folder: Path, env: dict) -> str:
-    return subprocess.run(["git", "-C", str(folder), "rev-parse", "HEAD"], capture_output=True,
-                          text=True, env=env).stdout.strip()
+    return subprocess.run([program("git", env), "-C", str(folder), "rev-parse", "HEAD"],
+                          capture_output=True, text=True, env=env).stdout.strip()
 
 
 def installed_record(python: Path, env: dict) -> dict:
