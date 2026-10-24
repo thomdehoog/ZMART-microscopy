@@ -64,11 +64,11 @@ python -c "from pathlib import Path; import zmart_drivers.leica.stellaris.naviga
 
 ### 4. Install the analysis
 
-The focus map and the detection run the `focus` and `object_analysis` workflows of ZMART Analysis, each in its own environment. Clone them next to `ZMART-microscopy`, at version 0.6.0rc6, and create their environments. Version 0.6.0rc6 has the same engine as the 0.6.0rc5 the interface installed, and a Cellpose environment that works:
+The focus map and the detection run the `focus` and `object_analysis` workflows of ZMART Analysis, each in its own environment. Clone them next to `ZMART-microscopy`, at version 0.6.0rc7, and create their environments. Version 0.6.0rc7 has the same engine as the 0.6.0rc5 the interface installed, and a Cellpose environment that works and uses the computer's NVIDIA GPU when it has one:
 
 ```bash
 cd ../../../..
-git clone -b v0.6.0rc6 https://github.com/ZMB-UZH/ZMART-analysis
+git clone -b v0.6.0rc7 https://github.com/ZMB-UZH/ZMART-analysis
 conda env create -f ZMART-analysis/workflows/focus/environments/main.yml
 conda env create -f ZMART-analysis/workflows/object_analysis/environments/classical.yml
 conda env create -f ZMART-analysis/workflows/object_analysis/environments/cellpose.yml

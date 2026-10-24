@@ -66,7 +66,7 @@ python -c "from pathlib import Path; import zmart_drivers.leica.stellaris.naviga
 To run the analysis in the target acquisition template, install the ZMART analysis engine and the environment its [`analysis`](template/analysis/) runs in:
 
 ```bash
-pip install "zmart-analysis @ git+https://github.com/ZMB-UZH/ZMART-analysis@v0.6.0rc6"
+pip install "zmart-analysis @ git+https://github.com/ZMB-UZH/ZMART-analysis@v0.6.0rc7"
 conda env create -f analysis/environments/classical.yml
 ```
 
