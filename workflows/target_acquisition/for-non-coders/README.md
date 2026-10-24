@@ -8,7 +8,7 @@ It drives the microscope through the [ZMART Controller](https://github.com/ZMB-U
 
 To build your own workflow in code instead, see the [target acquisition workflow for coders](../for-coders/).
 
-On a ZMB workstation, read [where things must live](https://github.com/ZMB-UZH/ZMART-interface/blob/v0.1.0rc5/docs/install-on-a-microscope.md#where-things-must-live) first: programs only run from `C:\ProgramData\MinicondaZMB`.
+On a ZMB workstation, read [where things must live](https://github.com/ZMB-UZH/ZMART-interface/blob/v0.1.0rc6/docs/install-on-a-microscope.md#where-things-must-live) first: programs only run from `C:\ProgramData\MinicondaZMB`.
 
 ## Install
 
@@ -32,7 +32,7 @@ This installs the ZMART Interface, and with it the parts it was tested with:
 
 | Part | Version |
 |---|---|
-| [ZMART Interface](https://github.com/ZMB-UZH/ZMART-interface) | 0.1.0rc5 |
+| [ZMART Interface](https://github.com/ZMB-UZH/ZMART-interface) | 0.1.0rc6 |
 | [ZMART Viewer](https://github.com/ZMB-UZH/ZMART-viewer) | 0.5.0rc8 |
 | [ZMART Controller](https://github.com/ZMB-UZH/ZMART-controller) | 0.4.0rc7 |
 | [ZMART Analysis](https://github.com/ZMB-UZH/ZMART-analysis) (the engine) | 0.6.0rc5 |

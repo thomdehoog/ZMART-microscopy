@@ -10,4 +10,4 @@ dependencies:
   - pip
   - git
   - pip:
-      - zmart-interface @ git+https://github.com/ZMB-UZH/ZMART-interface@v0.1.0rc5
+      - zmart-interface @ git+https://github.com/ZMB-UZH/ZMART-interface@v0.1.0rc6
