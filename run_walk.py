@@ -5,7 +5,7 @@ Run it with the Python of the ``zmart-integration`` environment, after ``install
     python run_walk.py [--output FOLDER]
 
 The walk is the interface's own acceptance test,
-``zmart_interface/workflows/target_acquisition/walk.spec.js``: Playwright
+``zmart_interface/workflows/target_acquisition/walk.spec.ts``: Playwright
 opens the operator page in Chromium and presses through all ten steps (connect,
 carrier, overview plan, focus map, overview scan, detection, gating, target
 areas, target acquisition, and the protocol) on the interface's mock
@@ -51,7 +51,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 WORK = Path(os.environ.get("ZMART_INTEGRATION_WORK", HERE / "work")).resolve()
-WALK = "zmart_interface/workflows/target_acquisition/walk.spec.js"
+WALK = "zmart_interface/workflows/target_acquisition/walk.spec.ts"
 WINDOWS = platform.system() == "Windows"
 
 
@@ -75,8 +75,8 @@ const said = execFileSync(python.command, python.args, { cwd: python.cwd, encodi
 console.log(JSON.stringify({ ...python, imported: said.trim() }));
 """
 
-#: The walk's file that starts the bridge (and holds ``bridgePython``).
-LIVE_BRIDGE = "zmart_interface/workflows/target_acquisition/steps/scan_the_overview/live-bridge.js"
+#: The walk's file that holds ``bridgePython``, how it starts the bridge.
+LIVE_BRIDGE = "zmart_interface/workflows/target_acquisition/testing/python.ts"
 
 
 def where_the_walks_bridge_finds_the_interface(interface: Path, env: dict) -> dict:
@@ -116,6 +116,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--output", type=Path,
                         default=WORK / "walk" / time.strftime("%Y-%m-%dT%H-%M-%S"))
     args = parser.parse_args(argv)
+    # Playwright prints marks such as a tick that a Windows console code page cannot write.
+    sys.stdout.reconfigure(errors="replace")
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     interface = WORK / "ZMART-interface"
