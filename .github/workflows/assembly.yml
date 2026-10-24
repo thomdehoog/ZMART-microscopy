@@ -17,6 +17,9 @@
 #
 # Nothing here is cached on purpose: the point is to install what a new user
 # would get today.
+#
+# Both jobs install the blocks' release-candidate branches: the checks are
+# written for them, and they are what is tested before a promotion to main.
 name: assembly
 
 on:
@@ -54,7 +57,7 @@ jobs:
           conda-remove-defaults: true
 
       - name: Install the five blocks from GitHub, and the focus environment
-        run: python install.py --no-walk-tools --analysis-steps focus:main
+        run: python install.py --branch release-candidate --no-walk-tools --analysis-steps focus:main
 
       - name: The plug-in checks
         run: python -m pytest tests
@@ -85,7 +88,7 @@ jobs:
           conda-remove-defaults: true
 
       - name: Install the five blocks, the analysis environments, Node.js tools and Chromium
-        run: python install.py
+        run: python install.py --branch release-candidate
 
       - name: The system libraries Chromium needs, and a pretend screen
         run: |

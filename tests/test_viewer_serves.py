@@ -29,7 +29,7 @@ University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
 
 from __future__ import annotations
 
-from conftest import write_report
+from conftest import checkout, write_report
 
 #: Connect to a mock, capture one field, keep it the way the bridge keeps a
 #: scan's field, and ask the viewer what it serves.
@@ -37,19 +37,22 @@ CAPTURE_KEEP_AND_SERVE = """
     import json, sys, time, urllib.request
     from pathlib import Path
     from zmart_controller import ZmartController, check_acquire_answer
-    from zmart_interface.framework.bridge import pictures, state
-    from zmart_interface.framework.bridge.connecting import the_viewers_area
-    from zmart_interface.parts.microscope.instrument import Instrument
-    from zmart_interface.parts.storage import viewer_service
-    from zmart_interface.parts.storage.output import (
+    import zmart_controller
+    from zmart_interface.workflows.target_acquisition.bridge import pictures, state
+    from zmart_interface.workflows.target_acquisition.bridge.connecting import the_viewers_area
+    from zmart_interface.workflows.target_acquisition.microscope.instrument import Instrument
+    from zmart_interface.workflows.target_acquisition.storage import viewer_service
+    from zmart_interface.workflows.target_acquisition.storage.output import (
         move_record_images, position_label, prepare_acquisition, prepare_experiment)
 
     which, output_root = sys.argv[1], sys.argv[2]
     if which == "interface":
-        from zmart_interface import mock_microscope as driver
+        from zmart_interface.workflows.target_acquisition import mock_microscope as driver
         connection = {**driver.CONNECTION, "output_root": output_root}
     else:
-        driver = "mock"
+        # The controller's mock is a driver like any other, kept with the
+        # controller's tests: installed on this computer, then named.
+        driver = zmart_controller.register_driver(sys.argv[3])
         connection = {"output_root": output_root, "mock_timing": "instant"}
     session = Instrument(ZmartController(driver, connection))
     try:
@@ -58,12 +61,12 @@ CAPTURE_KEEP_AND_SERVE = """
         # output folder, never one a driver names.
         state.run = session.run = prepare_experiment(output_root, "assembly")
         viewer_service.start(state.run, bake=True, canvas=area)
-        answer = session.acquire_answer(position_label=position_label(0), folder="overview")
+        answer = session.acquire_answer(position_label=position_label(0), acquisition_type="overview")
         problems = check_acquire_answer(answer)
         if not answer["success"] or problems:
             raise SystemExit(f"the capture does not fit the contract: {problems} {answer}")
-        record = answer["content"]
-        move_record_images(record, prepare_acquisition(state.run, "overview").data)
+        record = answer["output"]
+        move_record_images(record, prepare_acquisition(state.run, "overview"))
         pictures.keep_position_as_zarr(record, "overview")
         if record.get("zarr_error"):
             raise SystemExit(f"the interface could not keep the capture: {record['zarr_error']}")
@@ -126,6 +129,7 @@ def test_a_capture_from_the_interfaces_mock_is_served_by_the_viewer(fresh_python
 
 def test_a_capture_from_the_controllers_mock_is_served_by_the_viewer(fresh_python, tmp_path):
     """The controller's mock (beads) fits the contract, so the interface keeps its capture and the viewer serves it."""
-    said = fresh_python(CAPTURE_KEEP_AND_SERVE, "controller", str(tmp_path / "runs"))
+    said = fresh_python(CAPTURE_KEEP_AND_SERVE, "controller", str(tmp_path / "runs"),
+                        str(checkout("ZMART-controller") / "tests" / "mock_driver"))
     write_report("viewer-serves-controller-mock", said)
     _check_served(said)

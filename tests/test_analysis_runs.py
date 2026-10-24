@@ -99,8 +99,8 @@ def test_the_interface_reaches_the_engine_the_way_its_focus_map_does(
     session. This is the call its focus map makes for every point.
     """
     monkeypatch.setenv("ZMART_ANALYSIS_WORKFLOWS", str(checkout("ZMART-analysis")))
-    from zmart_interface.parts.analysis.warm import Analysis
-    from zmart_interface.parts.analysis.workflows import workflows_root
+    from zmart_interface.workflows.target_acquisition.analysis.warm import Analysis
+    from zmart_interface.workflows.target_acquisition.analysis.workflows import workflows_root
 
     assert workflows_root() == (checkout("ZMART-analysis") / "workflows").resolve()
     analysis = Analysis(output=str(a_stack_sharp_at_108_um.parent))

@@ -71,9 +71,9 @@ GITHUB = "https://github.com/ZMB-UZH"
 #: default branch (``main``) is installed.
 BLOCKS = {
     "zmart-controller": f"zmart-controller @ git+{GITHUB}/ZMART-controller",
-    # The Leica and ZEISS extras bring what those drivers import, so that every
-    # driver can be plugged in and checked.
-    "zmart-drivers": f"zmart-drivers[leica,zeiss] @ git+{GITHUB}/ZMART-drivers",
+    # The Leica extra brings what the Leica driver imports, so that it can be
+    # plugged in and checked.
+    "zmart-drivers": f"zmart-drivers[leica] @ git+{GITHUB}/ZMART-drivers",
     "zmart-viewer": f"zmart-viewer @ git+{GITHUB}/ZMART-viewer",
     "zmart-analysis": f"zmart-analysis @ git+{GITHUB}/ZMART-analysis",
     # The dev extra brings pytest and the OME reader the interface's own
