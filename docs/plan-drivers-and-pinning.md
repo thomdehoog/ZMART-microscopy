@@ -1,6 +1,6 @@
 # Plan: how the drivers are organised and pinned
 
-*Status: a draft for review, 31 October 2026. Nothing has been changed yet.*
+*Status: agreed in outline with Thom on 31 October 2026: one repository, one branch per driver line, tags as pins, and ZMART Microscopy as the front page. Nothing has been changed yet; the questions at the end are still open.*
 
 ## In short
 
@@ -174,6 +174,30 @@ A microscope that people do experiments on is always pinned to a **tag**, so
 its driver only changes when someone decides it should. A test or
 development microscope may instead follow a **branch**, so it picks up every
 fix at its next install. That is where a fix is tried before it is tagged.
+
+Both links open **the driver's own folder** on GitHub, not the top of the
+repository, so the reader sees only that driver even though the repository
+holds all of them:
+
+- the pin opens the folder exactly as that microscope runs it, for example
+  `https://github.com/thomdehoog/ZMART-drivers/tree/nikon-nis-6.10-v0.4.1/zmart_drivers/nikon/nis_elements_6_10`;
+- the branch opens the same folder as it is now, with the latest fixes, for
+  example
+  `https://github.com/thomdehoog/ZMART-drivers/tree/nikon/nis-6.10/zmart_drivers/nikon/nis_elements_6_10`.
+
+Each driver folder therefore needs a README written for the person who lands
+there from the main page: which microscopes and which software version it is
+for, how to install it, and how to work on it.
+
+The mental model we explain to people is short:
+
+1. **ZMART Microscopy is the front page.** It lists our microscopes and what
+   each one runs.
+2. **Click the pin** to see the exact driver on that microscope.
+3. **Click the branch** to see where that driver is being worked on. If you
+   are working on it, you commit there, and you change only that driver's
+   folder. Something all drivers share is fixed on `main` and then merged
+   into the driver branches.
 
 ### 6. Each driver says which controller contract it was written for
 
