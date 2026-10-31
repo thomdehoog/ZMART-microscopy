@@ -67,7 +67,7 @@ A driver is written once per API, not once per microscope. Two microscopes
 that use the same API share one driver; what differs between them is their
 settings. This means `leica/stellaris5_y42h93/navigator_expert` would become
 `leica/navigator_expert`, and what is particular to the Stellaris 5 in Y42-H93
-moves to that microscope's settings (see section 5).
+moves to that microscope's settings (see section 6).
 
 The controller already picks an instrument by its whole name, made of the
 vendor, the microscope and the API. That name stays. What changes is where
@@ -143,7 +143,61 @@ what a microscope runs. When a fix on `nikon/nis-6.10` has been tested, it is
 tagged, for example `nikon-nis-6.10-v0.4.1`, and microscopes are moved to
 that tag when we choose to.
 
-### 5. The pins live in ZMART Microscopy, one folder per microscope
+**One branch holds many versions.** A branch keeps every state it has ever
+been in, and each tag marks one of them. So one driver branch carries all the
+published versions of that driver, and different microscopes can be pinned
+to different versions on the same branch:
+
+```
+nikon/nis-6.10   ──●────────●────────●──────────●──────▶  (keeps moving)
+                   │        │        │          │
+                 v0.4.0   v0.4.1   v0.5.0     (newest, not yet tagged)
+```
+
+| Microscope | Pinned to |
+|---|---|
+| Nikon Ti2, room A | `nikon-nis-6.10-v0.4.1` |
+| Nikon Ti2, room B | `nikon-nis-6.10-v0.5.0` |
+| Nikon test system | `nikon/nis-6.10` (the branch, always the newest) |
+
+A tag never moves and is never removed, so room A keeps running v0.4.1 until
+someone deliberately moves it to v0.5.0.
+
+**A new branch, or a new version?** Ordinary fixes and improvements are new
+versions on the same branch. A new branch is started from `main` only when
+the driver has to work in a fundamentally different way, which usually means
+the vendor's software changed: for example a new NIS-Elements whose way of
+talking to programs is different. Then `nikon/nis-6.20` starts beside
+`nikon/nis-6.10`, and the microscopes still on 6.10 keep their branch and
+their tags.
+
+In one line: **a branch is one driver for one vendor API; a tag is one
+published version of it.**
+
+### 5. Publishing a version
+
+This repository is where the drivers are published. Each tag becomes a
+**GitHub Release**: a page for that version with a short note, written for
+the person at the microscope, saying what changed and what it needs. For
+example: "Fixes how the number of planes is reported. Needs NIS-Elements
+6.10.02 or newer." The front page in ZMART Microscopy links to these pages.
+
+Versions are numbered `vMAJOR.MINOR.FIX`, and each number tells the reader
+how careful to be when moving a microscope to it:
+
+- **FIX** goes up (v0.4.0 → v0.4.1) for a correction that changes nothing
+  else. Moving a microscope to it should be safe.
+- **MINOR** goes up (v0.4.1 → v0.5.0) when something new is added or
+  behaviour changes in a way the operator may notice. Read the note first.
+- **MAJOR** goes up (v0.5.0 → v1.0.0) when the driver is no longer
+  interchangeable with the version before, for example because it follows a
+  new version of the controller's contract. Check it on a test microscope
+  first.
+
+While a driver is still young its major number stays at 0, as it is for all
+of them today.
+
+### 6. The pins live in ZMART Microscopy, one folder per microscope
 
 ```
 ZMART-microscopy/
@@ -199,7 +253,7 @@ The mental model we explain to people is short:
    folder. Something all drivers share is fixed on `main` and then merged
    into the driver branches.
 
-### 6. Each driver says which controller contract it was written for
+### 7. Each driver says which controller contract it was written for
 
 The controller defines a short list of commands (move, read the state,
 acquire) and what each one must return. We call that list its **contract**.
