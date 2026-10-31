@@ -60,14 +60,15 @@ So: one `main` branch, and a tag for every release of a driver.
 | Level | Example | What it is |
 |---|---|---|
 | Vendor | Leica, Nikon, ZEISS | a folder that groups drivers |
-| Driver, one per API | ZEN API, NIS-Elements 6.10, Leica Navigator Expert | **code**, which is versioned and released |
-| Microscope | the Stellaris 5 in Y42-H93 | **settings**: which driver at which version, and its limits, orientation and calibration |
+| Driver: vendor / software / API type | Leica / LAS X / Navigator Expert, ZEISS / ZEN / ZEN API | **code**, which is versioned and released |
+| Microscope | the Stellaris 5 in Y42-H93 | what differs for this instrument and its test record (inside the driver, section 4), and which version it runs (the pin, section 6) |
 
-A driver is written once per API, not once per microscope. Two microscopes
-that use the same API share one driver; what differs between them is their
-settings. This means `leica/stellaris5_y42h93/navigator_expert` would become
-`leica/navigator_expert`, and what is particular to the Stellaris 5 in Y42-H93
-moves to that microscope's settings (see section 6).
+A driver is written once per vendor software and API type, not once per
+microscope. Two microscopes driven the same way share one driver, and what
+differs between them is kept in a folder per microscope inside it. This
+means `leica/stellaris5_y42h93/navigator_expert` would become
+`leica/las_x/navigator_expert`, with the Stellaris 5 in Y42-H93 as one of its
+microscope folders (see section 4).
 
 The controller already picks an instrument by its whole name, made of the
 vendor, the microscope and the API. That name stays. What changes is where
@@ -85,7 +86,7 @@ and its own tags, while all of them stay in one repository:
 
 ```
 ZMART-drivers/
-  leica/navigator_expert/   pyproject.toml  →  zmart-driver-leica-navigator-expert
+  leica/las_x/navigator_expert/   pyproject.toml  →  zmart-driver-leica-las-x-navigator-expert
   nikon/nis_elements_6_10/  pyproject.toml  →  zmart-driver-nikon-nis-elements-6-10
   zeiss/zenapi/             pyproject.toml  →  zmart-driver-zeiss-zenapi
   mesospim/                 pyproject.toml  →  zmart-driver-mesospim
@@ -107,18 +108,23 @@ version, and no other microscope changes.
 
 We want to work on several drivers at the same time without them getting in
 each other's way, and without creating a repository for every driver. So
-each driver gets its own **branch** in ZMART drivers, named after the vendor
-and the API:
+each driver gets its own **branch** in ZMART drivers.
+
+A driver is defined by three things, and its branch is named after them:
+**vendor / software / API type**. The API type is the way a program talks
+to the vendor's software.
 
 ```
 ZMART-drivers  (one repository)
-  main                     what all drivers have in common, and the latest of each
-  nikon/nis-6.10           only the Nikon NIS-Elements 6.10 folder changes here
-  nikon/nis-6.20           a newer NIS-Elements version, if its driver differs
-  zeiss/zen-api
-  leica/navigator-expert
-  mesospim
+  main                             what all drivers have in common, and the latest of each
+  leica/las-x/navigator-expert     only the Leica LAS X Navigator Expert driver changes here
+  zeiss/zen/zen-api
+  nikon/nis-elements/...           the API type is still to be named
+  mesospim/...                     the software and API type are still to be named
 ```
+
+The Nikon examples further down still use the shorter name `nikon/nis-6.10`;
+they will follow this naming once the Nikon API type is named.
 
 Every branch starts from `main` and holds all the drivers, but **only its
 own driver changes on it**. This matters: because all branches share their
@@ -127,9 +133,45 @@ code, the documentation, the automatic tests) can be merged into every
 branch. Branches that each held only one driver's files would share no
 history, and every such fix would have to be copied by hand.
 
-Branches follow **APIs**, not microscopes. Two microscopes that use
-NIS-Elements 6.10 run the same code, so they share one branch; what differs
-between them is their settings.
+Branches follow **the vendor's software and API type**, not microscopes.
+Several microscopes can use one driver: for example, several Leica systems
+that are all driven through LAS X Navigator Expert share the branch
+`leica/las-x/navigator-expert`.
+
+**Inside the driver: one folder per tested microscope.** A driver is tested
+on the specific microscopes it is used on, and those microscopes can differ
+slightly (other objectives, detectors or stage, or a setting that behaves
+differently). So on its branch, the driver's folder holds the shared code and
+one folder for each microscope it has been tested on:
+
+```
+branch leica/las-x/navigator-expert
+  zmart_drivers/leica/las_x/navigator_expert/
+    driver/                    the code shared by all these microscopes
+    microscopes/
+      stellaris5-y42h93/       what is different on this microscope, and its test record
+      <second Leica system>/
+      <third Leica system>/
+```
+
+Each microscope folder holds:
+
+- **what is specific to that microscope for this driver**, such as its
+  objectives, detectors or stage, or a setting that works differently there;
+- **a short test record**: on which date it was tested, with which version
+  of the vendor's software, and what the result was.
+
+A published version of the driver therefore means: *this driver, tested on
+these microscopes*, and anyone can see on GitHub exactly which instruments it
+was checked on. If one microscope needs a small difference in code, that
+code can start in its own folder. Only if the difference grows large does it
+become a driver, and a branch, of its own.
+
+What a microscope folder on the driver branch does **not** hold is the pin:
+which version that microscope runs. The pin stays on the front page in ZMART
+Microscopy (section 6), because it changes when we decide to move a
+microscope to a newer version, and that should not count as a new version of
+the driver.
 
 To have several drivers open at once, `git worktree` gives each branch its
 own folder from a single copy of the repository, for example
@@ -171,8 +213,9 @@ talking to programs is different. Then `nikon/nis-6.20` starts beside
 `nikon/nis-6.10`, and the microscopes still on 6.10 keep their branch and
 their tags.
 
-In one line: **a branch is one driver for one vendor API; a tag is one
-published version of it.**
+In one line: **a branch is one driver (vendor / software / API type), with a
+folder for each microscope it is tested on; a tag is one published version of
+it; the pin on the front page says which version each microscope runs.**
 
 ### 5. Publishing a version
 
@@ -221,7 +264,7 @@ worked on:
 
 | Microscope | Driver | Runs (tag) | Worked on (branch) | Controller contract |
 |---|---|---|---|---|
-| Leica Stellaris 5, Y42-H93 | Leica Navigator Expert | [`leica-navigator-expert-v0.3.0`](#) | [`leica/navigator-expert`](#) | 0.2 |
+| Leica Stellaris 5, Y42-H93 | Leica Navigator Expert | [`leica-navigator-expert-v0.3.0`](#) | [`leica/las-x/navigator-expert`](#) | 0.2 |
 | ... | | | | |
 
 A microscope that people do experiments on is always pinned to a **tag**, so
@@ -284,11 +327,13 @@ Each step leaves everything working.
 
 1. ZMART drivers: give each driver folder its own `pyproject.toml` and
    version, and tag the current state of each one as its first release.
-2. ZMART drivers: create one branch per driver line from `main`, and write
-   down in the README how a fix moves from a branch, through a test
-   microscope, to a tag.
-3. ZMART drivers: move microscope-specific parts out of the driver folders
-   (starting with `leica/stellaris5_y42h93`) into settings.
+2. ZMART drivers: create one branch per driver from `main`, named
+   vendor / software / API type, and write down in the README how a fix
+   moves from a branch, through a test microscope, to a tag.
+3. ZMART drivers: inside each driver, make one folder per tested microscope
+   with what differs there and its test record, starting with the Leica
+   driver (`leica/stellaris5_y42h93` becomes a microscope folder of
+   `leica/las_x/navigator_expert`).
 4. ZMART drivers: add the contract version to each driver, and have the
    controller check it.
 5. ZMART drivers private: the same layout, branches and tags.
