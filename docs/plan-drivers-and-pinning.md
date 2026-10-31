@@ -67,7 +67,7 @@ A driver is written once per API, not once per microscope. Two microscopes
 that use the same API share one driver; what differs between them is their
 settings. This means `leica/stellaris5_y42h93/navigator_expert` would become
 `leica/navigator_expert`, and what is particular to the Stellaris 5 in Y42-H93
-moves to that microscope's settings (see step 4).
+moves to that microscope's settings (see section 5).
 
 The controller already picks an instrument by its whole name, made of the
 vendor, the microscope and the API. That name stays. What changes is where
@@ -103,7 +103,47 @@ zmart-driver-zeiss-zenapi @ git+https://github.com/thomdehoog/ZMART-drivers@zeis
 A fix to the ZEISS driver is then a new ZEISS tag. No other driver gets a new
 version, and no other microscope changes.
 
-### 4. The pins live in ZMART Microscopy, one folder per microscope
+### 4. One branch per driver line, so drivers can be worked on side by side
+
+We want to work on several drivers at the same time without them getting in
+each other's way, and without creating a repository for every driver. So
+each driver gets its own **branch** in ZMART drivers, named after the vendor
+and the API:
+
+```
+ZMART-drivers  (one repository)
+  main                     what all drivers have in common, and the latest of each
+  nikon/nis-6.10           only the Nikon NIS-Elements 6.10 folder changes here
+  nikon/nis-6.20           a newer NIS-Elements version, if its driver differs
+  zeiss/zen-api
+  leica/navigator-expert
+  mesospim
+```
+
+Every branch starts from `main` and holds all the drivers, but **only its
+own driver changes on it**. This matters: because all branches share their
+history with `main`, a fix to something the drivers have in common (shared
+code, the documentation, the automatic tests) can be merged into every
+branch. Branches that each held only one driver's files would share no
+history, and every such fix would have to be copied by hand.
+
+Branches follow **APIs**, not microscopes. Two microscopes that use
+NIS-Elements 6.10 run the same code, so they share one branch; what differs
+between them is their settings.
+
+To have several drivers open at once, `git worktree` gives each branch its
+own folder from a single copy of the repository, for example
+`ZMART-drivers-zeiss/` and `ZMART-drivers-leica/` next to each other. Each can
+be open in its own editor window or Claude session, without switching
+branches.
+
+**Branches and tags work together.** A branch is a line of work: it keeps
+moving as fixes are made. A tag is a fixed point on that line, and it is
+what a microscope runs. When a fix on `nikon/nis-6.10` has been tested, it is
+tagged, for example `nikon-nis-6.10-v0.4.1`, and microscopes are moved to
+that tag when we choose to.
+
+### 5. The pins live in ZMART Microscopy, one folder per microscope
 
 ```
 ZMART-microscopy/
@@ -121,16 +161,21 @@ ZMART-microscopy/
 Upgrading one microscope is changing one line in its `requirements.txt` and
 checking it at the microscope. Every other microscope keeps what it had.
 
-The main page of ZMART Microscopy gets a table built from these folders:
+The main page of ZMART Microscopy gets a table built from these folders. It
+links each microscope both to what it runs and to where its driver is being
+worked on:
 
-| Microscope | Driver | Version | Controller contract |
-|---|---|---|---|
-| Leica Stellaris 5, Y42-H93 | Leica Navigator Expert | [`leica-navigator-expert-v0.3.0`](#) | 0.2 |
-| ... | | | |
+| Microscope | Driver | Runs (tag) | Worked on (branch) | Controller contract |
+|---|---|---|---|---|
+| Leica Stellaris 5, Y42-H93 | Leica Navigator Expert | [`leica-navigator-expert-v0.3.0`](#) | [`leica/navigator-expert`](#) | 0.2 |
+| ... | | | | |
 
-Each version links to its tag on GitHub.
+A microscope that people do experiments on is always pinned to a **tag**, so
+its driver only changes when someone decides it should. A test or
+development microscope may instead follow a **branch**, so it picks up every
+fix at its next install. That is where a fix is tried before it is tagged.
 
-### 5. Each driver says which controller contract it was written for
+### 6. Each driver says which controller contract it was written for
 
 The controller defines a short list of commands (move, read the state,
 acquire) and what each one must return. We call that list its **contract**.
@@ -142,9 +187,10 @@ instead of a quiet mismatch.
 
 ## When to split into more repositories
 
-Not by vendor alone: one repository with one package per driver already gives
-each driver its own version. A separate repository earns its place only for a
-practical reason:
+Not by vendor and not by driver alone: one repository with a package and a
+branch per driver already lets each driver be worked on and versioned on its
+own, without a large number of repositories to look after. A separate
+repository earns its place only for a practical reason:
 
 - **Access or licence.** Code built on a vendor's software that we may not
   publish. ZMART drivers private exists for exactly this, and it would use the
@@ -160,15 +206,18 @@ Each step leaves everything working.
 
 1. ZMART drivers: give each driver folder its own `pyproject.toml` and
    version, and tag the current state of each one as its first release.
-2. ZMART drivers: move microscope-specific parts out of the driver folders
+2. ZMART drivers: create one branch per driver line from `main`, and write
+   down in the README how a fix moves from a branch, through a test
+   microscope, to a tag.
+3. ZMART drivers: move microscope-specific parts out of the driver folders
    (starting with `leica/stellaris5_y42h93`) into settings.
-3. ZMART drivers: add the contract version to each driver, and have the
+4. ZMART drivers: add the contract version to each driver, and have the
    controller check it.
-4. ZMART drivers private: the same layout and tags.
-5. ZMART Microscopy: add `microscopes/` with one folder per real microscope,
+5. ZMART drivers private: the same layout, branches and tags.
+6. ZMART Microscopy: add `microscopes/` with one folder per real microscope,
    and teach `install.py` to install a microscope by name, for example
    `python install.py --microscope leica-stellaris5-y42h93`.
-6. ZMART Microscopy: add the microscope table to the main page.
+7. ZMART Microscopy: add the microscope table to the main page.
 
 ## Questions to decide
 
