@@ -114,6 +114,12 @@ A driver is defined by three things, and its branch is named after them:
 **vendor / software / API type**. The API type is the way a program talks
 to the vendor's software.
 
+The driver is named after the software and not after the hardware because
+ZMART never talks to the microscope's hardware directly. It always talks to
+the vendor's software (LAS X, ZEN, NIS-Elements), and that software drives
+the hardware. So what decides how a driver must be written is the software
+and the way it lets programs in, not the model of the microscope.
+
 ```
 ZMART-drivers  (one repository)
   main                             what all drivers have in common, and the latest of each
