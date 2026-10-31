@@ -124,13 +124,43 @@ and the way it lets programs in, not the model of the microscope.
 ZMART-drivers  (one repository)
   main                             what all drivers have in common, and the latest of each
   leica/las-x/navigator-expert     only the Leica LAS X Navigator Expert driver changes here
+  leica/las-x/navigator            the plain ("classic") Navigator, through LAS X's hardware server (LCS)
+  nikon/nis-elements/6.10
+  nikon/nis-elements/7
   zeiss/zen/zen-api
-  nikon/nis-elements/...           the API type is still to be named
-  mesospim/...                     the software and API type are still to be named
+  evident/cellsens-fv/rdk          later, once it is a real driver (today only a try-out)
 ```
 
-The Nikon examples further down still use the shorter name `nikon/nis-6.10`;
-they will follow this naming once the Nikon API type is named.
+For Leica, the API type is named after the LAS X window the operator knows,
+not after the connection underneath, because that is what people at the
+microscope recognise. Navigator Expert and the plain Navigator are two
+separate drivers: Navigator Expert needs the Navigator Expert add-in and its
+CAM API, while the plain Navigator talks only to LAS X's hardware server
+(`LCS.EXE`), the same connection LAS X's own Navigator window uses.
+
+For Nikon, NIS-Elements 6.10 and 7 are also two separate drivers, because
+the two versions let programs in differently and need different code.
+
+The mesoSPIM driver is left out of this plan.
+
+The Nikon examples further down use the shorter name `nikon/nis-6.10` for
+`nikon/nis-elements/6.10`.
+
+**Where each driver is today** (31 October 2026):
+
+| Driver | Where it is | State |
+|---|---|---|
+| Leica LAS X Navigator Expert | `main` of both driver repositories, at `leica/stellaris5_y42h93/navigator_expert` | working; most complete in ZMART drivers private |
+| Leica LAS X Navigator | branch `claude/zmart-las-x-navigator-driver-jjxccf`, at `leica/stellaris/navigator` | beta `0.1.0b1`: its route passed 50 checks on the STELLARIS on 15 October 2026; the packaged driver is tested offline only |
+| Nikon NIS-Elements 6.10 | `main`, at `nikon/nis_elements_6_10`, and branch `nikon-nis-elements-ar610` | working |
+| Nikon NIS-Elements 7 | branch `claude/nikon-nis-elements-ar7-0.1.0a1`, at `nikon/nis_elements_ar7` | early alpha `0.1.0a1` |
+| ZEISS ZEN API | `main`, at `zeiss/zenapi` | working |
+| Evident cellSens-FV (RDK) | `evident/spike` only, for the FV4000 | a try-out; waits on Evident's real command reference |
+
+Before the new branches are made, the existing branches need sorting out:
+ZMART drivers has 31 and ZMART drivers private has 9, most of them left over
+from earlier work. Each is either merged, kept as an archive, or deleted,
+and that list is gone through together first.
 
 Every branch starts from `main` and holds all the drivers, but **only its
 own driver changes on it**. This matters: because all branches share their
