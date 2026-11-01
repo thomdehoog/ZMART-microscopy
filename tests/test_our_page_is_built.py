@@ -30,7 +30,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from conftest import INTERFACE_WORKFLOWS, checkout
+from conftest import INTERFACE_WORKFLOWS, REPO, checkout
 
 #: The page committed beside our workflows.
 OUR_PAGE = INTERFACE_WORKFLOWS / "built-page"
@@ -70,3 +70,32 @@ def test_the_committed_page_is_what_the_build_makes_from_our_workflows(tmp_path)
         "the committed page is not what the build makes from our workflows: build it again "
         "(see this file's description) and commit workflows/non-coders/interface/built-page"
     )
+
+
+def test_every_source_is_checked_out_with_unix_line_endings():
+    """The build copies some of our workflows' files into the page as they are.
+
+    A Windows checkout that gave them Windows line endings would build a page
+    that differs from the committed one, so it could not be checked against it.
+    ``.gitattributes`` keeps every checkout's text files as they are stored.
+    """
+    git = shutil.which("git")
+    if git is None or not (REPO / ".git").exists():
+        pytest.skip("needs git and a git checkout")
+    attributes = subprocess.run(
+        [git, "check-attr", "eol", "text", "--",
+         "workflows/non-coders/interface/target_acquisition/flow.ts",
+         "workflows/non-coders/interface/built-page/index.html"],
+        cwd=REPO, capture_output=True, text=True, check=True,
+    ).stdout.splitlines()
+    assert attributes == [
+        "workflows/non-coders/interface/target_acquisition/flow.ts: eol: lf",
+        "workflows/non-coders/interface/target_acquisition/flow.ts: text: auto",
+        "workflows/non-coders/interface/built-page/index.html: eol: lf",
+        "workflows/non-coders/interface/built-page/index.html: text: unset",
+    ], attributes
+    listed = subprocess.run(
+        [git, "ls-files", "--eol"], cwd=REPO, capture_output=True, text=True, check=True,
+    ).stdout.splitlines()
+    windows = [line.split("\t", 1)[1] for line in listed if "w/crlf" in line.split("\t", 1)[0]]
+    assert windows == [], f"checked out with Windows line endings: {windows}"

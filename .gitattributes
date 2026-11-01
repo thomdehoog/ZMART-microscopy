@@ -1,0 +1,9 @@
+# Every text file is checked out as it is stored, with Unix line endings, on
+# every computer. The build copies some of our workflows' files into the page as
+# they are, so a Windows checkout with Windows line endings would build a
+# different page.
+* text=auto eol=lf
+
+# The built page is kept exactly as the build writes it, on every computer: a
+# test compares it with a fresh build byte for byte.
+workflows/non-coders/interface/built-page/** -text
