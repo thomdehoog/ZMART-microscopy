@@ -1,6 +1,6 @@
 # Plan: the workflows live in ZMART Microscopy
 
-*Status: a draft for review, 31 October 2026. Nothing has been changed yet.*
+*Status: agreed in outline with Thom on 1 November 2026. Nothing has been changed yet; one question at the end is still open.*
 
 ## In short
 
@@ -22,9 +22,17 @@ Today two blocks still carry real workflows inside them:
 - **ZMART interface** ships the *Target acquisition* workflow inside its
   package, in `zmart_interface/workflows/target_acquisition/`.
 
-This plan keeps both where they are as clearly marked **examples**, so that
-each block still shows how to use it and still has something to test with,
-and puts the copies we actually use in this repository's `workflows/` folder.
+This plan keeps both where they are as clearly marked **examples**, and puts
+the copies we actually use in this repository's `workflows/` folder.
+
+The examples stay in the blocks on purpose, for two reasons:
+
+- **Each block can be tested on its own.** ZMART interface and ZMART analysis
+  each run their own tests against their own example, without needing ZMART
+  Microscopy or any other repository.
+- **People have something to learn from.** Someone who wants to write a
+  workflow for the interface, or a pipeline for the analysis engine, finds a
+  complete, working example right next to the code that runs it.
 
 ## What is already in place
 
@@ -122,11 +130,16 @@ Each step leaves everything working, with the tests passing.
    copies here, and run the walk on them.
 7. ZMART Microscopy: rewrite the coder notebooks on the installed blocks.
 
+## Decided
+
+- ZMART interface and ZMART analysis **keep their example workflows**: the
+  full Target acquisition, and the `alignment` and `object_analysis`
+  pipelines. They are clearly marked as examples, and each block's own tests
+  run on them, so the block can be tested by itself.
+
 ## Questions to decide
 
 1. In ZMART analysis, should the folder be renamed to `examples/`, or keep
-   the name `workflows/` with a clear note? Renaming is clearer but changes
-   paths that other people may use.
-2. Should the interface's example remain the full Target acquisition, or
-   later shrink to a smaller example of two or three steps that is easier to
-   learn from?
+   the name `workflows/` with a clear note? Renaming makes the purpose clear
+   from the name alone; the interface is the only known user of the path, and
+   this plan changes how it finds pipelines anyway.
