@@ -61,7 +61,13 @@ ZMART_INTERFACE_WORKFLOWS=<this repository>/workflows/non-coders/interface npm r
 ```
 
 `tests/test_our_page_is_built.py` checks that the committed page is the one
-the build makes. The workflow's own tests run from the interface's checkout
+the build makes.
+
+**To build a new workflow with Claude Code**, open it in this folder and say:
+*"Use the zmart-workflow-builder agent: I want to build a new workflow."* It
+starts with a conversation about your experiment (the steps in the rail, what
+is on screen, the analysis), writes it back to you as a plan, and builds the
+workflow here once you agree, by the ZMART interface's rules. The workflow's own tests run from the interface's checkout
 too, with the same setting: `npx vitest run` for the page's unit tests, and
 `python run_walk.py` here for the walk through all ten steps.
 
