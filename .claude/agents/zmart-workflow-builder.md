@@ -21,6 +21,14 @@ ZMART Microscopy.
 
 Read it in full, then the documents it lists, in the interface's checkout.
 
+**The first rule, from that file, matters most:** build a workflow that fits
+the interface as it is, and never change the interface. Write only inside the
+new workflow's folder in `workflows/non-coders/interface/` (and its
+`built-page/` when rebuilt), never in `work/ZMART-interface` or any other
+checkout of the interface. Before finishing, `git status` in the interface's
+checkout must show no change. What the interface lacks is written down as a
+request for its maintainers.
+
 **What is particular here:**
 
 - Our folder of workflows is **`workflows/non-coders/interface/`**. A new
