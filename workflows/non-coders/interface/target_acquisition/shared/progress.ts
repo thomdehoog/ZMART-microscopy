@@ -1,0 +1,121 @@
+/**
+ * One run's progress, told as the page hears it land.
+ *
+ * A box under a title: a bar that fills as the things land and sweeps
+ * while the run is busy, and one line under it -- what is being done at
+ * the left, the arithmetic at the right. Detection and acquisition both
+ * tell this story, so it is built here once and each hands it what it
+ * hears:
+ *
+ *     say({ start: true, of, doing })      the press is taken; with `of`, the
+ *                                          last run's pace projects the whole
+ *                                          time before anything has landed
+ *     say({ doing })                       a sentence about what is happening
+ *     say({ done, of, doing, ... })        one more landed; the pace since the
+ *                                          start projects the time left
+ *     say({ ended: true, note })           the run's own last words; the bar
+ *                                          stops where the count stands, and
+ *                                          the pace is kept for the next run
+ *
+ *
+ * Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
+ * University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
+ */
+
+import { sideGroup } from "zmart-interface/api";
+
+/** A duration in the box's own words. */
+const saySpan = (s: number): string => (s >= 90
+  ? `${Math.floor(s / 60)} min ${String(Math.round(s % 60)).padStart(2, "0")} s`
+  : `${s >= 10 ? Math.round(s) : Math.max(0.1, s).toFixed(1)} s`);
+
+/**
+ * The box, hidden until the run starts. `now` is the clock the pace is
+ * measured on, the page's own unless a test hands in one it can move.
+ */
+/** One thing the run says: that it started, how far it is, what it is doing, or that it ended. */
+export interface Snap {
+  start?: boolean;
+  doing?: string | null;
+  done?: number | null;
+  of?: number | null;
+  ended?: boolean;
+  note?: string;
+}
+
+/** The box: its group, what it is told, and the two halves of its line. */
+export interface ProgressBox {
+  group: HTMLElement;
+  say(snap: Snap): void;
+  doing: HTMLElement;
+  count: HTMLElement;
+}
+
+export function progressBox(title: string, { now = () => performance.now() }: { now?: () => number } = {}): ProgressBox {
+  const box = sideGroup(title);
+  box.group.style.display = "none";
+  const bar = document.createElement("div");
+  bar.className = "progress-bar";
+  const fill = document.createElement("div");
+  fill.className = "progress-fill";
+  bar.append(fill);
+  const line = document.createElement("div");
+  line.className = "progress-line";
+  const doing = document.createElement("span");
+  doing.className = "progress-doing";
+  const count = document.createElement("span");
+  count.className = "progress-count";
+  line.append(doing, count);
+  box.body.append(bar, line);
+
+  /* When the run under way began, for the pace the count line projects.
+     Cleared when the run ends; restarted if the box was rebuilt mid-run,
+     which loses the early pace but never shows a stale one. */
+  let ranSince: number | null = null;
+  /* Where the count stands, for the line to settle on when the run ends:
+     an estimate of time left is no word for a run that has stopped. */
+  let stood: string | null = null;
+  /* Seconds an item took, on average, in the last run that finished: what
+     the next run is projected from until it has a pace of its own. A first
+     run projects nothing until its first item lands. */
+  let lastPer: number | null = null;
+  let landed = 0;
+
+  const projected = (done: number, of: number, per: number | null): string => `${done} of ${of}`
+    + (per !== null && of > done ? ` · ≈ ${saySpan(per * (of - done))} left` : "");
+
+  function say(snap: Snap) {
+    box.group.style.display = "";
+    if (snap.start) {
+      ranSince = now();
+      stood = null;
+      landed = 0;
+      bar.classList.add("busy");
+      fill.style.width = "0%";
+      doing.textContent = snap.doing ?? "";
+      count.textContent = snap.of ? projected(0, snap.of, lastPer) : "";
+      return;
+    }
+    if (snap.doing != null) doing.textContent = snap.doing;
+    if (snap.done != null && snap.of) {
+      if (ranSince === null) ranSince = now();
+      const gone = (now() - ranSince) / 1000;
+      const per = snap.done ? gone / snap.done : lastPer;
+      landed = snap.done;
+      const still = snap.of - snap.done;
+      stood = `${snap.done} of ${snap.of}`;
+      bar.classList.toggle("busy", still > 0);
+      fill.style.width = `${(100 * snap.done) / snap.of}%`;
+      count.textContent = projected(snap.done, snap.of, per);
+    }
+    if (snap.ended) {
+      bar.classList.remove("busy");
+      doing.textContent = snap.note ?? "";
+      if (stood !== null) count.textContent = stood;
+      if (ranSince !== null && landed > 0) lastPer = (now() - ranSince) / 1000 / landed;
+      ranSince = null;
+    }
+  }
+
+  return { group: box.group, say, doing, count };
+}

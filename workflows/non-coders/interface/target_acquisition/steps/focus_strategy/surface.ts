@@ -1,0 +1,229 @@
+/**
+ * Fitting a focus surface z(x, y) from measured points.
+ *
+ * Pure: no DOM, no app state, micrometres in and micrometres out. It once
+ * mirrored a Python fitter that has since been removed, so this file is now
+ * the one place the focus surface is fitted, and its tests are the contract.
+ *
+ * The model is chosen by geometry rather than by preference:
+ *
+ *     flat z (< 0.1 µm range) or 1 point   -> constant (mean z)
+ *     >= 4 non-collinear points            -> thin-plate spline
+ *     otherwise                            -> least-squares plane
+ *
+ * The spline is a *smoothing* one. It passes near the points, not exactly
+ * through them, which is the only reason a residual afterwards means anything:
+ * an interpolant's residual is zero by construction and would hide the single
+ * autofocus that landed on a speck of dust.
+ */
+
+import type { Surface } from "../../shared/run-document.ts";
+
+/** A measured height at a place, as the fit takes it. */
+interface Measured {
+  x: number;
+  y: number;
+  z: number;
+}
+
+const FLAT_TOLERANCE_UM = 0.1;
+const SPLINE_SMOOTHING = 0.1;
+
+/** The thin-plate basis r² ln r — the function that minimises bending energy. */
+const kernelU = (r: number) => (r < 1e-9 ? 0 : r * r * Math.log(r));
+
+/** Dense gaussian elimination with partial pivoting. n stays tiny here. */
+export function solve(A: number[][], b: number[]): number[] | null {
+  const n = b.length;
+  const M = A.map((row, i) => [...row, b[i]]);
+  /* Singular means a pivot that is nothing next to the matrix's own entries,
+     not next to an absolute number: the systems here range from order one
+     to squared micrometres. */
+  const largest = Math.max(1e-300, ...A.flat().map(Math.abs));
+  for (let i = 0; i < n; i++) {
+    let piv = i;
+    for (let k = i + 1; k < n; k++) if (Math.abs(M[k][i]) > Math.abs(M[piv][i])) piv = k;
+    if (Math.abs(M[piv][i]) < 1e-12 * largest) return null;
+    [M[i], M[piv]] = [M[piv], M[i]];
+    for (let k = i + 1; k < n; k++) {
+      const f = M[k][i] / M[i][i];
+      for (let j = i; j <= n; j++) M[k][j] -= f * M[i][j];
+    }
+  }
+  const out = new Array<number>(n).fill(0);
+  for (let i = n - 1; i >= 0; i--) {
+    let acc = M[i][n];
+    for (let j = i + 1; j < n; j++) acc -= M[i][j] * out[j];
+    out[i] = acc / M[i][i];
+  }
+  return out;
+}
+
+const ptp = (a: number[]) => Math.max(...a) - Math.min(...a);
+
+/** Are the points spread in two dimensions, or strung out along one line? */
+export function nonCollinear(xc: number[], yc: number[]): boolean {
+  let sxx = 0, sxy = 0, syy = 0;
+  for (let i = 0; i < xc.length; i++) {
+    sxx += xc[i] * xc[i];
+    sxy += xc[i] * yc[i];
+    syy += yc[i] * yc[i];
+  }
+  const tr = sxx + syy;
+  const det = sxx * syy - sxy * sxy;
+  if (tr <= 0) return false;
+  const smallest = tr / 2 - Math.sqrt(Math.max(0, (tr * tr) / 4 - det));
+  return smallest > 1e-9 * tr;
+}
+
+/**
+ * A surface with no measured points behind it: a fixed height, or one a
+ * previous run recorded. `a` and `b` are µm of tilt across the full extent.
+ */
+export const affineSurface = ({ a = 0, b = 0, c, width, height }: {
+  a?: number; b?: number; c: number; width: number; height: number;
+}): Surface => ({ kind: "affine", model: "affine", a, b, c, width, height });
+
+/** Height of a fitted surface at a stage position. */
+export function surfaceZ(m: Surface | null, x: number, y: number): number {
+  if (!m) return 0;
+  if (m.kind === "affine") {
+    return m.a * (x / m.width - 0.5) + m.b * (y / m.height - 0.5) + m.c;
+  }
+  if (m.kind === "constant") return m.c;
+  if (m.kind === "plane") return m.c0 * (x - m.x0) + m.c1 * (y - m.y0) + m.c2;
+
+  const u = (x - m.x0) / m.scale;
+  const v = (y - m.y0) / m.scale;
+  let z = m.a0 + m.a1 * u + m.a2 * v;
+  for (let i = 0; i < m.pts.length; i++) {
+    const du = u - m.pts[i].u;
+    const dv = v - m.pts[i].v;
+    z += m.w[i] * kernelU(Math.sqrt(du * du + dv * dv));
+  }
+  return z;
+}
+
+/** Fit `[{x, y, z}]` and report which model the geometry bought via `.model`. */
+export function fitSurface(points: readonly Measured[]): Surface | null {
+  const n = points.length;
+  if (!n) return null;
+
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const zs = points.map((p) => p.z);
+  const x0 = xs.reduce((a, b) => a + b, 0) / n;
+  const y0 = ys.reduce((a, b) => a + b, 0) / n;
+  const xc = xs.map((x) => x - x0);
+  const yc = ys.map((y) => y - y0);
+  const meanZ = () => zs.reduce((a, b) => a + b, 0) / n;
+
+  if (ptp(zs) < FLAT_TOLERANCE_UM || n === 1) {
+    return { kind: "constant", model: "constant", c: meanZ() };
+  }
+
+  if (n >= 4 && nonCollinear(xc, yc)) {
+    const scale = Math.max(ptp(xc), ptp(yc)) || 1;
+    const u = xc.map((x) => x / scale);
+    const v = yc.map((y) => y / scale);
+    const N = n + 3;
+    const A = Array.from({ length: N }, () => new Array<number>(N).fill(0));
+    const b = new Array<number>(N).fill(0);
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        const du = u[i] - u[j];
+        const dv = v[i] - v[j];
+        A[i][j] = i === j ? SPLINE_SMOOTHING : kernelU(Math.sqrt(du * du + dv * dv));
+      }
+      A[i][n] = 1; A[i][n + 1] = u[i]; A[i][n + 2] = v[i];
+      A[n][i] = 1; A[n + 1][i] = u[i]; A[n + 2][i] = v[i];
+      b[i] = zs[i];
+    }
+    const sol = solve(A, b);
+    if (sol) {
+      return {
+        kind: "spline", model: "spline", x0, y0, scale,
+        pts: u.map((uu, i) => ({ u: uu, v: v[i] })),
+        w: sol.slice(0, n), a0: sol[n], a1: sol[n + 1], a2: sol[n + 2],
+      };
+    }
+  }
+
+  /* A least-squares plane through centred coordinates. Centring makes the
+     height independent of the tilt: the plane's height at the centroid is
+     the mean height, exactly, whatever the points' layout. Only the two
+     slopes need solving, in coordinates scaled to order one so that the
+     collinearity test below is about geometry rather than about micrometres. */
+  const scale = Math.max(ptp(xc), ptp(yc)) || 1;
+  const u = xc.map((x) => x / scale);
+  const v = yc.map((y) => y / scale);
+  let suu = 0, suv = 0, svv = 0, suz = 0, svz = 0;
+  const zm = meanZ();
+  for (let i = 0; i < n; i++) {
+    suu += u[i] * u[i]; suv += u[i] * v[i]; svv += v[i] * v[i];
+    suz += u[i] * (zs[i] - zm); svz += v[i] * (zs[i] - zm);
+  }
+  let a = 0, b = 0;
+  if (nonCollinear(u, v)) {
+    const det = suu * svv - suv * suv;
+    a = (svv * suz - suv * svz) / det;
+    b = (suu * svz - suv * suz) / det;
+  } else if (suu + svv > 0) {
+    /* Points along one line say nothing about the tilt across it. numpy's
+       least squares answers with the minimum-norm fit — tilted along the
+       line, flat across it — and so does this: the slope along the line's
+       direction, and none across. */
+    const tr = suu + svv;
+    const disc = Math.sqrt(Math.max(0, (tr * tr) / 4 - (suu * svv - suv * suv)));
+    const largest = tr / 2 + disc;
+    let dx = suv, dy = largest - suu;
+    if (Math.abs(dx) + Math.abs(dy) < 1e-12 * tr) { dx = largest - svv; dy = suv; }
+    if (Math.abs(dx) + Math.abs(dy) < 1e-12 * tr) { dx = suu >= svv ? 1 : 0; dy = 1 - dx; }
+    const norm = Math.hypot(dx, dy);
+    dx /= norm; dy /= norm;
+    const along = (dx * suz + dy * svz) / (dx * dx * suu + 2 * dx * dy * suv + dy * dy * svv);
+    a = along * dx; b = along * dy;
+  }
+  return { kind: "plane", model: "plane", x0, y0, c0: a / scale, c1: b / scale, c2: zm };
+}
+
+/**
+ * How far each measured point sits from the fitted surface. One large residual
+ * is the tell that a single autofocus landed on dust and is quietly bending
+ * everything else — the same reading as the Python `residuals_um`.
+ */
+export const residualsUm = (surface: Surface | null, points: readonly Measured[]): number[] =>
+  points.map((p) => p.z - surfaceZ(surface, p.x, p.y));
+
+/** RMS of the residuals, and the index of the point that fits worst. */
+export function residualSummary(surface: Surface | null, points: readonly Measured[]) {
+  const errs = residualsUm(surface, points);
+  if (!errs.length) return { errs, rms: 0, worst: -1 };
+  const rms = Math.sqrt(errs.reduce((a, e) => a + e * e, 0) / errs.length);
+  let worst = 0;
+  errs.forEach((e, i) => { if (Math.abs(e) > Math.abs(errs[worst])) worst = i; });
+  return { errs, rms, worst };
+}
+
+/**
+ * Rebuild the surface without each point in turn, and ask what the remaining
+ * points predict for the one held back.
+ *
+ * This exists because the fit residual is a poor alarm. A smoothing spline
+ * bends toward an outlier, so it hides most of its own error: a point 18 µm
+ * out of place shows a fit residual near 1 µm, which reads as healthy. The
+ * leave-one-out error reports the full 18 µm, because the surface it is
+ * measured against never saw the bad point.
+ *
+ * Note what it still cannot do: with few points, dropping one changes which
+ * model the geometry buys (a spline becomes a plane), so every point's error
+ * moves. Trust the magnitude as a warning; treat the index as a suggestion
+ * until there are six or more points.
+ */
+export function looErrors(points: readonly Measured[]): (number | null)[] {
+  if (points.length < 4) return points.map(() => null);
+  return points.map((p, i) => {
+    const rest = points.filter((_, j) => j !== i);
+    return p.z - surfaceZ(fitSurface(rest), p.x, p.y);
+  });
+}

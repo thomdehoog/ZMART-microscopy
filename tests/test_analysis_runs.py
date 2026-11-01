@@ -27,7 +27,7 @@ import numpy as np
 import pytest
 import tifffile
 
-from conftest import checkout
+from conftest import ANALYSIS
 
 #: Where the sharp plane is, and the height each plane was taken at.
 SHARP_PLANE = 4
@@ -64,10 +64,10 @@ def the_focus_environment():
 def test_the_engine_scores_a_focus_stack_in_the_focus_environment(
     a_stack_sharp_at_108_um, the_focus_environment
 ):
-    """The installed engine runs the focus recipe from the clone and finds the sharp plane."""
+    """The installed engine runs our focus pipeline and finds the sharp plane."""
     from zmart_analysis import Engine
 
-    pipeline = checkout("ZMART-analysis") / "workflows" / "focus" / "pipelines" / "focus.yaml"
+    pipeline = ANALYSIS / "focus" / "pipelines" / "focus.yaml"
     engine = Engine()
     try:
         engine.register("focus", str(pipeline), str(a_stack_sharp_at_108_um.parent))
@@ -92,17 +92,17 @@ def test_the_engine_scores_a_focus_stack_in_the_focus_environment(
 def test_the_interface_reaches_the_engine_the_way_its_focus_map_does(
     a_stack_sharp_at_108_um, the_focus_environment, monkeypatch
 ):
-    """The interface's own door to the analysis finds the workflows and gets the same answer.
+    """Our interface workflow's own door to the analysis finds its pipelines and gets the same answer.
 
-    The interface is told where the workflows are with
-    ``ZMART_ANALYSIS_WORKFLOWS``, and keeps one engine warm for the whole
-    session. This is the call its focus map makes for every point.
+    Target acquisition finds its pipelines in ``workflows/non-coders/analysis``,
+    beside it, and keeps one engine warm for the whole session. This is the
+    call its focus map makes for every point.
     """
-    monkeypatch.setenv("ZMART_ANALYSIS_WORKFLOWS", str(checkout("ZMART-analysis")))
-    from zmart_interface.workflows.target_acquisition.analysis.warm import Analysis
-    from zmart_interface.workflows.target_acquisition.analysis.workflows import workflows_root
+    monkeypatch.delenv("ZMART_ANALYSIS_WORKFLOWS", raising=False)
+    from target_acquisition.analysis.warm import Analysis
+    from target_acquisition.analysis.workflows import workflows_root
 
-    assert workflows_root() == (checkout("ZMART-analysis") / "workflows").resolve()
+    assert workflows_root() == ANALYSIS.resolve()
     analysis = Analysis(output=str(a_stack_sharp_at_108_um.parent))
     try:
         found = analysis.run("focus", {"image_path": str(a_stack_sharp_at_108_um),

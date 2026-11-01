@@ -1,0 +1,13 @@
+# The environment of read_images, segment_watershed, measure_objects and build_object_table.
+# Every package comes from the lock file classical.txt, at one version, so it is
+# the same on every computer: conda env create -f classical.yml
+# conda-forge only.
+name: ZMART--object_analysis--classical
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - -r classical.txt

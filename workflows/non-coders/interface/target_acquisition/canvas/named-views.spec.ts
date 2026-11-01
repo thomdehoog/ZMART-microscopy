@@ -1,0 +1,167 @@
+/**
+ * The projection is the one product the operator draws: a single plane is
+ * its own plane, a stack is its maximum over Z, and both lie flat beside
+ * each other. Proved on the pixels of a real published product, with and
+ * without baking, whichever kind of position lands first; the products on
+ * disk are the projection and nothing else.
+ */
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { expect, test } from "@playwright/test";
+import { pythonForTheBridge } from "../testing/python.ts";
+import { readPng, type Pixels } from "../testing/pixels.ts";
+import type { Acquisition, EngineViewer } from "./engines/neuroglancer-under/viewer.ts";
+
+declare global {
+  interface Window {
+    /** The operator's projection, chosen out of the server's rows, as this spec hands it to the engine. */
+    namedAcquisitions?: (rows: ConfigRow[]) => Acquisition[];
+    /** The engine this spec opens on the published product. */
+    namedViewer?: EngineViewer;
+    /** The engine as first opened, to tell an added source from a reopened one. */
+    initialNamedViewer?: EngineViewer;
+  }
+}
+
+/** One row of the fixture server's `/api/config`, as this test reads it. */
+interface ConfigRow {
+  channelIndex: number;
+  sources: string[];
+  coverageSources: string[];
+  [more: string]: unknown;
+}
+
+const fixture = fileURLToPath(new URL("./fixtures/serve-mixed-acquisition.py", import.meta.url));
+/* What the fixture writes: a flat of 80 everywhere, a three-plane stack of
+   40, 100 and 160, and later a black stack over the flat. The projection of
+   the stack is its brightest plane. */
+const FLAT = [80, 80, 0], STACK_PROJECTED = [160, 160, 0], GROUND = [255, 0, 255], BLACK = [0, 0, 0];
+for (const bake of [false, true]) for (const flatFirst of [false, true]) {
+  test(`projection: bake ${bake}, flat first ${flatFirst}`, async ({ page }, info) => {
+    test.setTimeout(90_000);
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), "named-op-"));
+    const child = spawn(pythonForTheBridge(), [fixture, folder], { windowsHide: true });
+    let logs = "";
+    child.stderr.on("data", data => { logs += data; });
+    const origin = await new Promise<string>((resolve, reject) => {
+      let output = "";
+      child.stdout.on("data", data => {
+        output += data;
+        if (output.includes("\n")) resolve(JSON.parse(output.split("\n")[0]).url);
+      });
+      child.on("exit", code => reject(new Error(`fixture exited ${code}: ${logs}`)));
+      child.on("error", reject);
+    });
+    const errors: string[] = [], requests: string[] = [];
+    page.on("pageerror", error => errors.push(String(error)));
+    page.on("request", request => { if (/\/data\/.*\/c\//.test(request.url())) requests.push(request.url()); });
+    const publish = async (names: string[], opening = false): Promise<ConfigRow[]> => {
+      const data = { path: folder, source_revisions: Object.fromEntries(names.map(n => [`${n}.ome.zarr`, 1])),
+        composition: { regions: "complete", order: names.map(n => `${n}.ome.zarr`) } };
+      const reply = await page.request.post(`${origin}/api/${opening ? "stores/open" : "announce"}`, {
+        data: opening ? { ...data, bake, canvas: { x_um: [0, 512], y_um: [0, 128] },
+          views: { path: path.join(folder, "view"), acquisition: "mixed",
+            modes: [], projections: ["max"],
+            projection_path: path.join(folder, "projections") } } : { publications: [data] },
+      });
+      expect(reply.ok(), await reply.text()).toBe(true);
+      return (await (await page.request.get(`${origin}/api/config`)).json()).layers;
+    };
+    try {
+      const first = await publish(flatFirst ? ["flat"] : ["stack"], true);
+      await page.goto("/?backend=pretend");
+      await page.evaluate(async ({ origin, layers }: { origin: string; layers: ConfigRow[] }) => {
+        const below = document.createElement("div");
+        below.style.cssText = "position:fixed;left:0;top:0;width:640px;height:320px;z-index:999;background:magenta";
+        const host = document.createElement("div");
+        host.id = "named-host";
+        host.style.cssText = "width:100%;height:100%";
+        below.append(host);
+        document.body.append(below);
+        const api = await import(origin + "/embedding.js");
+        /* The operator's own selection: the projection, by its method. */
+        window.namedAcquisitions = (rows) => {
+          const choice = api.viewChoices(rows)[0];
+          if (!choice.keys.includes("max")) throw new Error(`no projection among ${choice.keys}`);
+          const selected = api.selectedViews(rows, { [choice.id]: "max" });
+          // A stand-in handed over as the engine's Acquisition: it has no `url`, only its embedding.
+          return [{ name: "mixed", embeddingUrl: origin + "/embedding.js",
+            channels: rows.filter(row => api.inSelectedView(row, selected)).map(row => ({
+              ...row, colour: row.channelIndex === 0 ? [1, 0, 0] : [0, 1, 0],
+              window: { low: 0, high: 255 },
+              sources: row.sources.map(url => origin + url),
+              coverageSources: row.coverageSources.map(url => origin + url),
+            })) }] as unknown as Acquisition[];
+        };
+        const { openerFor } = await import("/@zmart-workflows/target_acquisition/canvas/engines.ts");
+        window.namedViewer = await (await openerFor("neuroglancer-under"))(host, {
+          acquisitions: window.namedAcquisitions(layers),
+          presentation: "2d-overlay", transparentBackground: true,
+        });
+        window.initialNamedViewer = window.namedViewer;
+      }, { origin, layers: first });
+      const update = async (layers: ConfigRow[]) => {
+        expect(await page.evaluate(layers => window.namedViewer!.addSources(window.namedAcquisitions!(layers)), layers)).toBe(true);
+        await page.evaluate(() => window.namedViewer!.setView({ centre: { x: 128, y: 32 }, zoom: 0.5 }));
+      };
+      const photo = async (name?: string) => readPng(await page.locator("#named-host").screenshot(
+        name ? { path: info.outputPath(name) } : {}));
+      const pixel = (shot: Pixels, x: number) => Array.from(shot.data.slice((160 * shot.width + x) * shot.channels,
+        (160 * shot.width + x) * shot.channels + 3));
+
+      await update(await publish(["flat", "stack"]));
+      await page.waitForFunction(() => window.namedViewer!.layersForMeasurement().every(row => (row.dims as unknown[] | null)?.length));
+      /* The flat at 80, the stack at its brightest plane, the gap between
+         them see-through: one flat picture, whatever plane the engine
+         happens to stand at. */
+      await expect.poll(async () => pixel(await photo(), 128)).toEqual(FLAT);
+      await expect.poll(async () => pixel(await photo(), 384)).toEqual(STACK_PROJECTED);
+      expect(pixel(await photo(), 256)).toEqual(GROUND);
+      for (const z of [-1000, 0, 2, 1000]) {
+        await page.evaluate(z => window.namedViewer!.setPlane(z), z);
+        await expect.poll(async () => pixel(await photo(), 128)).toEqual(FLAT);
+        await expect.poll(async () => pixel(await photo(), 384)).toEqual(STACK_PROJECTED);
+      }
+      await photo("projection.png");
+      /* The stack's one-pixel detail is drawn at its own resolution: the
+         projection loses nothing to a coarser pyramid level. */
+      for (const zoom of [0.5, 1, 2, 4]) {
+        await page.evaluate(zoom => window.namedViewer!.setView({ centre: { x: 96, y: 24 }, zoom }), zoom);
+        const detail = (shot: Pixels) => {
+          const at = (x: number) => {
+            const sx = Math.floor(320 + (x - 96) / zoom);
+            const sy = Math.floor(160 + (8.5 - 24) / zoom);
+            return shot.data[(sy * shot.width + sx) * shot.channels];
+          };
+          return zoom <= 1 ? Math.abs(at(136.5) - at(137.5)) : at(136.5);
+        };
+        await expect.poll(async () => detail(await photo())).toBe(zoom <= 1 ? 60 : 190);
+      }
+      // A later acquired black stack covers the old flat signal, not the ground.
+      const beforeUpdate = requests.length;
+      await update(await publish(["flat", "stack", "black"]));
+      await expect.poll(async () => pixel(await photo(), 128)).toEqual(BLACK);
+      expect(pixel(await photo(), 256)).toEqual(GROUND);
+      expect(requests.length).toBeGreaterThan(beforeUpdate);
+      // A coarse zoom must keep exactly the same black/empty distinction.
+      await page.evaluate(() => window.namedViewer!.setView({ centre: { x: 64, y: 32 }, zoom: 2 }));
+      await expect.poll(async () => pixel(await photo(), 304)).toEqual(BLACK);
+      expect(pixel(await photo(), 336)).toEqual(GROUND);
+      await photo("coarse-black-and-gap.png");
+      expect(await page.evaluate(() => window.namedViewer === window.initialNamedViewer)).toBe(true);
+      const after = requests.length;
+      await page.waitForTimeout(2300);
+      expect(requests.length).toBe(after);
+      console.log({ bake, flatFirst, imageRequests: after, idleImageRequests: 0 });
+      expect(errors).toEqual([]);
+      expect(fs.readdirSync(path.join(folder, "view")).filter(n => n.endsWith(".zmartview.zarr")))
+        .toEqual(["mixed_max.zmartview.zarr"]);
+    } finally {
+      await page.evaluate(() => window.namedViewer?.destroy()).catch(() => {});
+      child.kill();
+    }
+  });
+}

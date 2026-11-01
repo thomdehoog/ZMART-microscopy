@@ -1,0 +1,85 @@
+/**
+ * What Step 9 draws on the picture: the target tiles that have been imaged.
+ */
+
+import type { Layer } from "../../canvas/layers-above.ts";
+import type { StageRun } from "../../shared/stage.ts";
+
+export function acquiredLayers(theRun: StageRun): Record<string, Layer> {
+  const { run, drawnIn, activeMode, css } = theRun;
+  return {
+    frames: {
+    key: "frames",
+    label: "Target tiles",
+    explains: "The tiles laid round the restricted targets, in the target settings' "
+      + "frame -- the plan the acquisition step images.",
+    /* On the step that places them and the one that images them; on the
+       latter their eye is pressed off on the way in, since a tint over the
+       frames hides the pixels they were imaged for, and their cell stays
+       in the strip for a look at the plan. */
+    shown: (activeMode === "select" || activeMode === "targets") && run.targetTiles.length > 0,
+    staysSolid: true,
+    /* Worn the way the operator dressed the tiles in their cell in the
+       masks strip: one colour, the accent unless chosen, filled or as an
+       outline, at the dress's opacity. */
+    paint: (frame) => {
+      const ctx = frame.context;
+      const { place, scale, w, h } = drawnIn(frame);
+      const dress = run.tilesDress;
+      const colour = dress.colour ?? css("--accent");
+      const outline = dress.show === "line";
+      ctx.globalAlpha = dress.alpha;
+      ctx.fillStyle = colour;
+      ctx.strokeStyle = outline ? colour : css("--accent-deep");
+      ctx.lineWidth = outline ? 2 : 1;
+      for (const tile of run.targetTiles) {
+        const half = tile.frameUm / 2;
+        const [x, y] = place(tile.x - half, tile.y - half);
+        const side = tile.frameUm * scale;
+        if (x > w || y > h || x + side < 0 || y + side < 0) continue;
+        if (!outline) ctx.fillRect(x, y, side, side);
+        ctx.strokeRect(x, y, side, side);
+      }
+      ctx.globalAlpha = 1;
+    },
+  },
+    targets: {
+    key: "targets",
+    label: "Targets",
+    explains: "The cells that have been imaged at high resolution -- each "
+      + "acquired frame printed where it was taken; the chosen one's frame is outlined.",
+    shown: activeMode === "targets" && run.acquired.length > 0,
+    /* Readable over the very fields they were acquired in, like the cells
+       and the masks: the see-through windows cut every non-solid layer, and
+       the selected outline survives only off the picture. */
+    staysSolid: true,
+    paint: (frame) => {
+      const ctx = frame.context;
+      const { place, scale } = drawnIn(frame);
+      for (const key of run.acquired) {
+        const acquired = run.acquiredTiles[key];
+        if (!acquired) continue;
+        /* The frames speak for themselves. The chosen one -- whose pair
+           the gallery shows -- is outlined along its own frame's edge, so it
+           is found among them without a mark over its pixels; the one under
+           the pointer is outlined lightly, saying what a press would take. */
+        /* The gallery follows the newest frame quietly as a run grows; that
+           is not a choice, and the field box already says where the run is. */
+        const chosen = run.selectedTarget === key && !run.selectedQuietly;
+        const hovered = run.hoveredTarget === key && !chosen;
+        if (chosen || hovered) {
+          const half = (acquired.frameUm ?? 0) / 2;
+          const [x, y] = place(acquired.x - half, acquired.y - half);
+          const side = (acquired.frameUm ?? 0) * scale;
+          ctx.strokeStyle = "#ffffff"; ctx.lineWidth = chosen ? 4 : 3;
+          ctx.strokeRect(x, y, side, side);
+          ctx.strokeStyle = css("--accent"); ctx.lineWidth = chosen ? 1.5 : 1;
+          if (hovered) ctx.setLineDash([4, 3]);
+          ctx.strokeRect(x, y, side, side);
+          ctx.setLineDash([]);
+        }
+      }
+    },
+  },
+  };
+}

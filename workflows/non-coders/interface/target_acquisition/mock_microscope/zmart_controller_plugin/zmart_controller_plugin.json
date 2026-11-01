@@ -1,0 +1,12 @@
+{
+  "name": "interface-mock",
+  "connection": {
+    "microscope": "mock",
+    "api_type": "Mock API",
+    "host": "localhost",
+    "client": "mock-client",
+    "password": null,
+    "config": null,
+    "output_root": null
+  }
+}

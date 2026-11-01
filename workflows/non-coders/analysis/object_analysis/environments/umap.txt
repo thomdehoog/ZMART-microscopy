@@ -1,0 +1,22 @@
+# The umap environment of the object_analysis workflow, every package at one version.
+# Python 3.12 from conda-forge; made with pip freeze on 2026-10-22.
+cloudpickle==3.1.2
+colorama==0.4.6
+joblib==1.6.0
+llvmlite==0.50.0
+narwhals==2.27.1
+numba==0.68.0
+numpy==2.5.4
+pandas==3.1.0
+pynndescent==0.6.0
+python-dateutil==3.0.0
+PyYAML==6.0.3
+scikit-learn==1.9.1
+scipy==1.18.1
+setuptools==84.2.1
+six==1.17.0
+threadpoolctl==3.7.0
+tqdm==4.70.1
+tzdata==2026.5
+umap-learn==0.5.12
+wheel==0.48.0

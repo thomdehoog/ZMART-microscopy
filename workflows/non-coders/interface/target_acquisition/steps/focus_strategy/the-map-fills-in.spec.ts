@@ -1,0 +1,92 @@
+/**
+ * The focus map fills in as each point is measured, not all at once at the end.
+ *
+ * Against the real bridge on the mock microscope. The rows in the list are
+ * counted while the run is going: what has to be true is that the count is
+ * seen at more than one value before the run ends. A map that appears whole
+ * when the run finishes is seen at one.
+ */
+
+import { expect, test, type Page } from "@playwright/test";
+import { operateTheInstrument, rest, startTheBridge } from "../../testing/live-bridge.ts";
+
+const PORT = Number(process.env.LIVE_FOCUS_PORT ?? 8809);
+
+let bridge: Awaited<ReturnType<typeof startTheBridge>> | null = null;
+test.beforeAll(async () => { bridge = await startTheBridge({ port: PORT }); });
+test.afterAll(async () => { await bridge?.stop(); });
+
+const gotoStep = (page: Page, name: string) => page.locator(`.step:has-text("${name}")`).first().click();
+
+async function record(page: Page, host: string, name: string) {
+  const bar = page.locator(`#${host} .setting-box.open`);
+  const field = bar.locator("input");
+  if (await field.count()) await field.fill(name);
+  await bar.locator("button.run").click();
+  await page.waitForTimeout(800);
+}
+
+test("points appear in the list one at a time while the map is measured", async ({ page }) => {
+  test.setTimeout(300_000);
+
+  await page.goto(process.env.BUILT_PAGE ? `http://127.0.0.1:${PORT}/` : `/?bridge=${encodeURIComponent(`http://127.0.0.1:${PORT}`)}`);
+  await page.locator(".session-foot button.run").click();
+  await expect(page.locator('.step.done:has-text("Connect")')).toBeVisible({ timeout: 60_000 });
+  await gotoStep(page, "Define Carrier");
+  await page.locator(".carrier-type[data-type='wellplate']").click();
+  await page.locator(".carrier-preset").selectOption({ label: "6-well · Nunc Nunclon" });
+  await page.waitForTimeout(600);
+  await gotoStep(page, "Overview scan area");
+  /* As an operator does: the job in the vendor's software first, then the
+     page records it. The focussing job is a stack; the overview is one plane. */
+  operateTheInstrument("choose", "Overview");
+  await record(page, "sf-preset", "overview");
+  await page.locator(".sf-apply-grid").click();
+  await page.waitForTimeout(600);
+  await gotoStep(page, "Focus strategy");
+  operateTheInstrument("choose", "Focussing");
+  await record(page, "focus-preset", "af");
+  await page.locator("#fp-place").click();
+  await page.waitForTimeout(400);
+
+  await page.locator(".panel.on button.step-run").click();
+
+  /* The rows are there from the moment the points are laid; what a measured
+     point changes is its height, from nothing to a number. So it is heights
+     that are counted, sampled while the run goes. */
+  const counts = new Set<number>();
+  const selected = new Set<string>();
+  const marks: unknown[] = [];
+  const until = Date.now() + 120_000;
+  do {
+    const rows = await page.locator("#focus-traces .point-row").allTextContents();
+    counts.add(rows.filter((t) => /\d µm/.test(t)).length);
+    /* And the lit row follows the stage: whichever point landed last. */
+    const lit = await page.locator('#focus-traces .point-row[aria-current="true"]').first()
+      .textContent().catch(() => "");
+    if (lit) selected.add(lit.trim().slice(0, 12));
+    /* The stage mark moves with the run too, and wherever it stands it is a
+       place with a height: the tip under it prints all three, and running
+       the map again from the stage begins at that height. */
+    marks.push(await page.evaluate(() => window.__theStageCanvas!.stageAt()));
+    /* The class, not the label: what the button says changes with what
+       pressing it means ("working…", "Interrupt"), and a sentinel read off
+       prose broke the day the prose improved. */
+    if (!((await page.locator(".panel.on button.step-run").getAttribute("class")) ?? "").includes("running")) break;
+    await rest(100);
+  } while (Date.now() < until);
+
+  const seen = [...counts].sort((a, b) => a - b);
+  console.log(`heights seen while measuring: ${seen.join(", ")}`);
+  expect(seen.length, `the map appeared all at once: heights seen ${seen}`).toBeGreaterThan(2);
+  /* Every count from none to one to two: a page that first shows four has
+     been looking away while the first points landed. */
+  expect(seen.slice(0, 3), "the first points were shown one at a time").toEqual([0, 1, 2]);
+  console.log(`rows seen selected while measuring: ${selected.size}`);
+  expect(selected.size, "the selection did not follow the points as they landed").toBeGreaterThan(2);
+  const placeless = marks.filter((at) => {
+    const { x, y, z } = (at ?? {}) as { x?: unknown; y?: unknown; z?: unknown };
+    return ![x, y, z].every(Number.isFinite);
+  });
+  expect(placeless, "the stage mark stood somewhere with no x, y or height").toEqual([]);
+});

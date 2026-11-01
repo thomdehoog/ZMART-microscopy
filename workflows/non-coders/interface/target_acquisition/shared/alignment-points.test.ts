@@ -1,0 +1,176 @@
+/* Where a carrier is registered from.
+ *
+ * `anchorsUm` picks the four places an operator drives to and snaps, and the
+ * whole value of the four is in where they are relative to each other. Both
+ * rules checked here were written after seeing the marks on screen and finding
+ * them in places nobody can register from:
+ *
+ *   - they were measured from `scanBox`, which insets an area by its rounded
+ *     corner so a square frame never overhangs the glass. Right for planning
+ *     tiles, wrong for a mark: on a round well the inset is nearly a third of
+ *     the radius, so every mark floated well inside the line it names.
+ *
+ *   - ties were broken towards the middle of the carrier, which on an even
+ *     number of rows or columns is no tie-break at all: on a two-chamber slide
+ *     three of the four marks landed on the same chamber. Marks bunched on one
+ *     area pin where the carrier is without pinning how it is turned.
+ *
+ * Both are invisible to a test that only checks four marks came back, so what
+ * is asserted is the geometry: which area each mark chose, and the distance
+ * from the mark to that area's edge.
+ */
+
+import { describe, it, expect } from "vitest";
+import { anchorsUm, howManyAnchorsFit, type Mark }
+  from "./carrier-panel.ts";
+import { carrierType, centres, fromPreset, geometry, type Area, type Carrier }
+  from "./carriers.ts";
+
+const MM_UM = 1000;
+
+/* The mark's own area: the nearest one, in both axes at once. Matching on the
+   single axis the mark is centred in is not enough — every area in a column
+   shares that centre line, and the first of them is rarely the right one. */
+const areaUnder = (config: Carrier, mark: Mark) => centres(config).reduce((best, a) => {
+  const far = (c: Area) => (c.x * MM_UM - mark.x) ** 2 + (c.y * MM_UM - mark.y) ** 2;
+  return far(a) < far(best) ? a : best;
+});
+
+const by = (marks: Mark[]) => Object.fromEntries(marks.map((m) => [m.at, m]));
+
+/* The ibidi 8-chamber, taken from the presets rather than written out here:
+   two rows deep and four columns across, so every outermost row and column is
+   a tie. It is the shape that showed the bunching on screen. Built through
+   `fromPreset` because that is the only thing that turns a preset into the
+   config the rest of the code reads — a hand-written one silently produces
+   NaN pitches and no areas at all. */
+const preset = (typeId: string, label: string) =>
+  fromPreset(typeId, carrierType(typeId).presets.find((p) => p.label === label)!);
+const eightChambers = preset("chamber", "8-well · ibidi µ-Slide");
+
+describe("a full round of four alignment points", () => {
+  it("sits each mark on the edge of its area, not inside it", () => {
+    const config = eightChambers;
+    for (const mark of anchorsUm(config, 4)) {
+      const area = areaUnder(config, mark);
+      const half = mark.at === "left" || mark.at === "right" ? config.w / 2 : config.h / 2;
+      const across = mark.at === "left" || mark.at === "right"
+        ? mark.x - area.x * MM_UM
+        : mark.y - area.y * MM_UM;
+      expect(Math.abs(across)).toBeCloseTo(half * MM_UM, 6);
+    }
+  });
+
+  it("hands the sides out clockwise", () => {
+    /* Point 1 on the left, and each one after it a quarter turn on: an
+       operator laying four of them walks round the carrier once rather than
+       crossing it twice, and the numbers in the list are the order they meet
+       the plate in. */
+    expect(anchorsUm(eightChambers, 4).map((m) => m.at))
+      .toEqual(["left", "top", "right", "bottom"]);
+    expect(anchorsUm(eightChambers, 8).map((m) => m.at))
+      .toEqual(["left", "top", "right", "bottom", "left", "top", "right", "bottom"]);
+  });
+
+  it("leans each mark a quarter turn on, so the four land on four areas", () => {
+    const m = by(anchorsUm(eightChambers, 4));
+    const chose = (k: string) => areaUnder(eightChambers, m[k]);
+    const [top, right, bottom, left] = ["top", "right", "bottom", "left"].map(chose);
+
+    /* All four turn the same way round the carrier: on a two-by-four the left
+       mark takes the top-left chamber, the top mark the top-right, the right
+       mark the bottom-right and the bottom mark the bottom-left. */
+    expect(left.x).toBeLessThan(top.x);        // left leans to the top
+    expect(top.y).toBeLessThan(right.y);       // top leans to the right
+    expect(right.x).toBeGreaterThan(bottom.x); // right leans to the bottom
+    expect(bottom.y).toBeGreaterThan(left.y);  // bottom leans to the left
+
+    const areas = [top, right, bottom, left].map((a) => `${a.x},${a.y}`);
+    expect(new Set(areas).size).toBe(4);
+  });
+
+  it("faces the marks across the carrier, whichever areas they chose", () => {
+    const m = by(anchorsUm(eightChambers, 4));
+    expect(m.left.x).toBeLessThan(m.right.x);
+    expect(m.top.y).toBeLessThan(m.bottom.y);
+  });
+});
+
+/* Where the carrier ends up once all four have been driven to.
+ *
+ * Each snap records "this place on the drawing is that place on the stage",
+ * and the four are averaged into one offset. That leaves the carrier centred
+ * on the middle of the four places the operator drove to — but only because
+ * the marks are laid out symmetrically about the carrier's own centre. The
+ * tie-break that spreads them decides that symmetry, so it is checked here
+ * over every preset rather than assumed from the two that were looked at on
+ * screen. A carrier whose marks lean to one side would come out of alignment
+ * sitting to that side of where it really is.
+ */
+describe("what the four leave behind", () => {
+  const everyPreset = ["chamber", "wellplate", "dish", "slide"]
+    .flatMap((type) => carrierType(type).presets
+      .filter((p) => p.label !== "Custom")
+      .map((p): [string, Carrier] => [`${type} · ${p.label}`, fromPreset(type, p)]));
+
+  it.each(everyPreset)("centres %s on the middle of its own marks", (_name, config) => {
+    const marks = anchorsUm(config, 4);
+    const g = geometry(config);
+    const mean = (f: (m: Mark) => number) => marks.reduce((sum, m) => sum + f(m), 0) / marks.length;
+    expect(mean((m) => m.x)).toBeCloseTo((g.width / 2) * MM_UM, 6);
+    expect(mean((m) => m.y)).toBeCloseTo((g.height / 2) * MM_UM, 6);
+  });
+});
+
+/* How many there are is the operator's to say. Four is what a carrier is laid
+   with unasked, and the rest are handed out the same way — a mark from each
+   side in turn — so that asking for more spreads them round the carrier
+   instead of gathering them down one edge of it.
+ */
+describe("as many points as were asked for", () => {
+  /* Named, not indexed: the catalogue is ordered by how many areas a carrier
+     has, so the first entry is whatever the smallest one happens to be. */
+  const sixWell = preset("wellplate", "6-well · Nunc Nunclon");
+
+  /* One. A single point drives the carrier to where it really is, which is
+     what most runs need; measuring how it is turned as well is worth asking
+     for rather than worth insisting on. */
+  it("lays one when nobody says otherwise", () => {
+    expect(anchorsUm(sixWell)).toHaveLength(1);
+  });
+
+  it.each([2, 3, 4, 5, 8])("lays %i when %i are asked for", (n) => {
+    expect(anchorsUm(sixWell, n)).toHaveLength(n);
+  });
+
+  it("stops at what the carrier has borders for", () => {
+    const most = howManyAnchorsFit(sixWell);
+    expect(anchorsUm(sixWell, 99)).toHaveLength(most);
+    /* Three columns and two rows: two areas stand on the left line and two on
+       the right, three along the top and three along the bottom. */
+    expect(most).toBe(10);
+  });
+
+  it("keeps every extra point on a border too", () => {
+    for (const mark of anchorsUm(sixWell, 8)) {
+      const area = areaUnder(sixWell, mark);
+      const half = mark.at === "left" || mark.at === "right" ? sixWell.w / 2 : sixWell.h / 2;
+      const across = mark.at === "left" || mark.at === "right"
+        ? mark.x - area.x * MM_UM
+        : mark.y - area.y * MM_UM;
+      expect(Math.abs(across)).toBeCloseTo(half * MM_UM, 6);
+    }
+  });
+
+  it("hands them out a side at a time, so eight are two to a side", () => {
+    const sides = anchorsUm(sixWell, 8).map((m) => m.at);
+    for (const side of ["left", "right", "top", "bottom"]) {
+      expect(sides.filter((s) => s === side)).toHaveLength(2);
+    }
+  });
+
+  it("never lays the same point twice", () => {
+    const marks = anchorsUm(sixWell, howManyAnchorsFit(sixWell));
+    expect(new Set(marks.map((m) => `${m.x},${m.y}`)).size).toBe(marks.length);
+  });
+});

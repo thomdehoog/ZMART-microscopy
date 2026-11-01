@@ -1,0 +1,38 @@
+# Sharpness of every plane in an acquired z-stack, and the height it peaks at.
+#
+# What to submit with each job:
+#
+#   image_paths  the planes of one stack, in z order, one 2-D file per plane, or
+#   image_path   one position that has its own z axis
+#   z_um         the height each plane was taken at. Without it, and without
+#                z spacing in the file, the peak is a plane index only.
+#
+# What comes back, under `score_focus`: `peak_z_um`, `found`, and `metrics`
+# with every measure's curve.
+
+metadata:
+  purpose: "Focus scoring for a z-stack"
+  version: "1.0"
+  verbose: 1
+  functions_dir: "../steps"
+
+# `metric` picks the measure that decides the height; all four are scored:
+#
+#   brenner      gradient; sharp peak on structured tissue, fooled by noise
+#   dct          frequency entropy; independent of brightness, broader peak
+#   vollath_f4   autocorrelation; best in dim, noisy fluorescence
+#   intensity    brightest `intensity_percentile` of pixels; confocal only
+#
+# `skip_ends` is how many planes at each end may not win: the ends of a
+# drive carry edge artefacts that every measure rewards.
+
+focus:
+  - read_images:
+      channel: 0
+      level: 0
+      t: 0
+
+  - score_focus:
+      metric: brenner
+      intensity_percentile: 99
+      skip_ends: 2

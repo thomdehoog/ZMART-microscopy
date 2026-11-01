@@ -1,0 +1,61 @@
+# Object analysis for one image tile, with a watershed: the same steps as
+# object_analysis_cellpose.yaml, with segment_watershed finding the nuclei. It
+# needs no torch, so every step runs in the classical environment. The table
+# lands under the same name, `object_analysis`. The operator page calls this
+# "fast".
+#
+# What to submit with each job (see README.md, "Input"):
+#
+#   image_path             an OME-Zarr position or an OME-TIFF
+#   tile_id                e.g. ["R0", 3, 7]
+#   tile_stage_xy_um       the tile's stage position
+#   tile_z_um              capture height; optional
+#   source_pixel_size_um   [x, y]
+#   source_image_size_px   [nx, ny]
+#   image_to_stage         the 2x2 matrix from image to stage axes
+#   channels               up to three channel indices; null for all
+#
+# What comes back, under `object_analysis`: the object table, one row per
+# object, with its features and stage position.
+
+metadata:
+  purpose: "Object-centered image analysis with a watershed"
+  version: "1.0"
+  verbose: 1
+  functions_dir: "../steps"
+
+# The watershed is single-threaded work of about a second a field, and fields
+# are independent: this pipeline runs its steps twelve wide. The Cellpose
+# pipeline keeps the step files' width of one, since every Cellpose worker
+# holds a model on the card.
+object_analysis:
+  - read_images:
+      max_workers: 12
+      channels: null
+
+  - segment_watershed:
+      max_workers: 12
+      threshold: 100     # a nucleus's mean above background, in counts
+      diameter: null
+      segmentation_binning: 1
+      border_margin_px: null
+      min_area_px: null
+      max_area_px: null
+      min_equivalent_diameter_um: null
+      max_equivalent_diameter_um: null
+
+  - measure_objects:
+      max_workers: 12
+      # Texture features quantise intensities into a few levels, and the top
+      # of that scale must be the same on every tile for the numbers to be
+      # comparable. Set it to the camera's full range (4095 for 12-bit
+      # data, 65535 for 16-bit). Left null, the 99.9th percentile of the
+      # pixels inside objects is used per tile.
+      intensity_scale: null
+      # Everything but the per-object texture crops (glrlm, lbp, fft), which
+      # loop over every object in Python and were 4.5 s of a 5.8 s step on a
+      # 488-object tile.
+      extras: [intensity, neighbourhood, morphology, gradients, stat_texture]
+
+  - build_object_table:
+      max_workers: 12

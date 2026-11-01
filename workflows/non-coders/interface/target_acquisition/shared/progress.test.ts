@@ -1,0 +1,84 @@
+// @vitest-environment jsdom
+/* One run's story: a bar that fills as things land and sweeps while busy,
+   and one line under it -- what is being done at the left, the arithmetic
+   at the right. Shared by detection and acquisition, so the words are
+   pinned once. */
+
+import { describe, it, expect } from "vitest";
+import { progressBox, type ProgressBox } from "./progress.ts";
+
+const box = () => {
+  let t = 0;
+  const built = progressBox("Acquisition progress", { now: () => t });
+  return { ...built, tick: (ms: number) => { t += ms; } };
+};
+const words = (b: ProgressBox) => [b.doing.textContent, b.count.textContent];
+const bar = (b: ProgressBox) => b.group.querySelector(".progress-bar")!;
+const fill = (b: ProgressBox) => b.group.querySelector<HTMLElement>(".progress-fill")!.style.width;
+
+describe("a progress box", () => {
+  it("is hidden until the run starts, then sweeps with nothing counted", () => {
+    const b = box();
+    expect(b.group.style.display).toBe("none");
+    b.say({ start: true, doing: "starting the workers…" });
+    expect(b.group.style.display).toBe("");
+    expect(words(b)).toEqual(["starting the workers…", ""]);
+    expect(bar(b).classList.contains("busy")).toBe(true);
+    expect(fill(b)).toBe("0%");
+  });
+
+  it("projects the time left from the pace measured since the start", () => {
+    const b = box();
+    b.say({ start: true });
+    b.tick(12 * 6_000);
+    b.say({ done: 12, of: 40, doing: "tile 12 · c0347" });
+    expect(words(b)).toEqual(["tile 12 · c0347", "12 of 40 · ≈ 2 min 48 s left"]);
+    expect(fill(b)).toBe("30%");
+    expect(bar(b).classList.contains("busy")).toBe(true);
+  });
+
+  it("ends full and still, with the run's own last words", () => {
+    const b = box();
+    b.say({ start: true });
+    b.tick(1_000);
+    b.say({ done: 40, of: 40, doing: "tile 40 · c9001" });
+    expect(words(b)[1]).toBe("40 of 40");
+    b.say({ ended: true, note: "40 pairs acquired" });
+    expect(words(b)).toEqual(["40 pairs acquired", "40 of 40"]);
+    expect(bar(b).classList.contains("busy")).toBe(false);
+    expect(fill(b)).toBe("100%");
+  });
+
+  it("stopped by hand keeps the count where it stopped", () => {
+    const b = box();
+    b.say({ start: true });
+    b.tick(1_000);
+    b.say({ done: 12, of: 40, doing: "tile 12 · c0347" });
+    b.say({ ended: true, note: "stopped by hand" });
+    expect(words(b)).toEqual(["stopped by hand", "12 of 40"]);
+    expect(bar(b).classList.contains("busy")).toBe(false);
+  });
+
+  it("projects a second run from the first one's pace before anything lands", () => {
+    const b = box();
+    b.say({ start: true, of: 4 });
+    expect(words(b)[1], "a first run has no pace to project from").toBe("0 of 4");
+    b.tick(4 * 3_000);
+    b.say({ done: 4, of: 4 });
+    b.say({ ended: true, note: "4 pairs acquired" });
+    b.say({ start: true, of: 10, doing: "starting…" });
+    expect(words(b)).toEqual(["starting…", "0 of 10 · ≈ 30 s left"]);
+    b.tick(5_000);
+    b.say({ done: 1, of: 10 });
+    expect(words(b)[1], "its own pace takes over from the first item").toBe("1 of 10 · ≈ 45 s left");
+  });
+
+  it("stands still once every item landed", () => {
+    const b = box();
+    b.say({ start: true });
+    b.tick(1_000);
+    b.say({ done: 9, of: 9 });
+    expect(words(b)[1]).toBe("9 of 9");
+    expect(bar(b).classList.contains("busy")).toBe(false);
+  });
+});

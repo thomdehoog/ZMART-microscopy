@@ -1,0 +1,222 @@
+import { describe, it, expect } from "vitest";
+import {
+  fitSurface, surfaceZ, residualSummary, looErrors, affineSurface, nonCollinear, solve,
+} from "./surface.ts";
+
+/* These tests are the contract for the focus surface: the Python fitter they
+   once mirrored has been removed, so nothing else pins it. */
+
+const plane = (x: number, y: number) => -412 + 0.006 * x + 0.004 * y;
+const grid = (pts: number[][]) => pts.map(([x, y]) => ({ x, y, z: plane(x, y) }));
+
+describe("model chosen by geometry", () => {
+  it("one point gives a constant at that height", () => {
+    const m = fitSurface([{ x: 100, y: 200, z: -410 }]);
+    expect(m?.model).toBe("constant");
+    expect(surfaceZ(m, 9999, 9999)).toBeCloseTo(-410, 9);
+  });
+
+  it("a flat sample gives a constant however many points there are", () => {
+    const pts = [[0, 0], [9000, 0], [0, 6000], [9000, 6000], [4500, 3000]]
+      .map(([x, y]) => ({ x, y, z: -400.02 }));
+    expect(fitSurface(pts)?.model).toBe("constant");
+  });
+
+  it("three spread points give a plane, and it goes through them", () => {
+    const pts = grid([[0, 0], [9000, 500], [3000, 6000]]);
+    const m = fitSurface(pts);
+    expect(m?.model).toBe("plane");
+    for (const p of pts) expect(surfaceZ(m, p.x, p.y)).toBeCloseTo(p.z, 6);
+  });
+
+  it("four non-collinear points earn a spline", () => {
+    const m = fitSurface(grid([[0, 0], [9000, 0], [0, 6000], [9000, 6000]]));
+    expect(m?.model).toBe("spline");
+  });
+
+  it("four points on one line do NOT earn a spline", () => {
+    const m = fitSurface(grid([[0, 3000], [3000, 3000], [6000, 3000], [9000, 3000]]));
+    expect(m?.model, "collinear points cannot support a surface").toBe("plane");
+  });
+
+  it("a plane fitted to collinear points still tilts along the line, and passes through the points", () => {
+    const pts = grid([[0, 3000], [3000, 3000], [6000, 3000], [9000, 3000]]);
+    const m = fitSurface(pts);
+    // the singular direction must not collapse the fit to a constant
+    expect(surfaceZ(m, 9000, 3000) - surfaceZ(m, 0, 3000)).toBeCloseTo(0.006 * 9000, 3);
+    // and the height is the measured height, not a fraction of it
+    for (const p of pts) expect(surfaceZ(m, p.x, p.y)).toBeCloseTo(p.z, 6);
+  });
+
+  it("no points is no surface", () => {
+    expect(fitSurface([])).toBeNull();
+  });
+});
+
+/* A tilted carrier at the rig's absolute stage height, points millimetres
+   apart. Every layout that spans the plane must give the plane back exactly,
+   in height as well as in tilt; the layouts that cannot (one point, points on
+   one line) must still give the measured height at the points themselves.
+   Change one file and the other is wrong. */
+const RIG = { z0: 5781.8, dzdx: 0.0002, dzdy: -0.0001 };
+const rigZ = (x: number, y: number) => RIG.z0 + RIG.dzdx * x + RIG.dzdy * y;
+const rig = (coords: number[][]) => coords.map(([x, y]) => ({ x, y, z: rigZ(x, y) }));
+const LAYOUTS = {
+  "2 points":            [[20600, 10500], [56600, 10500]],
+  "3 in a triangle":     [[20600, 10500], [56600, 10500], [38600, 30500]],
+  "3 on one line":       [[0, 0], [14000, 0], [28000, 0]],
+  "4 corners":           [[20600, 10500], [56600, 10500], [20600, 30500], [56600, 30500]],
+  "4 on one line":       [[0, 3000], [3000, 3000], [6000, 3000], [9000, 3000]],
+  "5 spread":            [[20600, 10500], [56600, 10500], [20600, 30500], [56600, 30500], [38600, 20500]],
+};
+const SPANNING: (keyof typeof LAYOUTS)[] = ["3 in a triangle", "4 corners", "5 spread"];
+const PROBES = [[38600, 20500], [0, 0], [70000, 40000]];
+
+describe("the shared fixture table: a tilted carrier at the rig's stage height", () => {
+  for (const [name, coords] of Object.entries(LAYOUTS)) {
+    it(`${name}: the fitted height at every measured point is the measured height`, () => {
+      const pts = rig(coords);
+      const m = fitSurface(pts);
+      for (const p of pts) expect(surfaceZ(m, p.x, p.y), name).toBeCloseTo(p.z, 6);
+    });
+  }
+  for (const name of SPANNING) {
+    it(`${name}: the plane is recovered everywhere, height and tilt`, () => {
+      const m = fitSurface(rig(LAYOUTS[name]));
+      for (const [x, y] of PROBES) expect(surfaceZ(m, x, y), name).toBeCloseTo(rigZ(x, y), 4);
+    });
+  }
+  it("points on one line tilt along the line and are flat across it", () => {
+    const m = fitSurface(rig(LAYOUTS["3 on one line"]));
+    expect(m?.model).toBe("plane");
+    expect(surfaceZ(m, 28000, 0) - surfaceZ(m, 0, 0)).toBeCloseTo(RIG.dzdx * 28000, 6);
+    expect(surfaceZ(m, 14000, 9000)).toBeCloseTo(surfaceZ(m, 14000, 0), 6);
+  });
+  it("one point is a constant at that point's height, whatever the carrier's tilt", () => {
+    const m = fitSurface(rig([[20600, 10500]]));
+    expect(m?.model).toBe("constant");
+    expect(surfaceZ(m, 0, 0)).toBeCloseTo(rigZ(20600, 10500), 9);
+  });
+});
+
+describe("the spline smooths rather than interpolates", () => {
+  const coords = [[0, 0], [9000, 0], [0, 6000], [9000, 6000], [4500, 3000]];
+
+  it("reproduces a genuinely flat sample exactly — its affine part is a plane", () => {
+    const pts = grid(coords);
+    const { rms } = residualSummary(fitSurface(pts), pts);
+    expect(rms).toBeLessThan(1e-9);
+  });
+
+  it("trades accuracy for smoothness once the surface has curvature", () => {
+    const pts = grid(coords).map((p) => ({ ...p, z: p.z + 6 * Math.sin(p.x / 3000) }));
+    const { errs, rms } = residualSummary(fitSurface(pts), pts);
+    expect(errs.some((e) => Math.abs(e) > 1e-6),
+      "an exact interpolant would leave nothing to read").toBe(true);
+    expect(rms, "and it still sits close to them").toBeLessThan(3);
+  });
+});
+
+describe("what a fit residual can and cannot tell you", () => {
+  const spoiled = (n = 5, bad = 2, by = 18) => {
+    const coords = [[0, 0], [9000, 0], [0, 6000], [9000, 6000], [4500, 3000],
+      [2000, 1500], [7000, 4500], [4500, 300]].slice(0, n);
+    const pts = grid(coords);
+    pts[bad].z += by;                                 // this autofocus hit dust
+    return pts;
+  };
+
+  it("a spoiled point does raise the rms", () => {
+    const pts = spoiled();
+    expect(residualSummary(fitSurface(pts), pts).rms).toBeGreaterThan(0.5);
+  });
+
+  it("but the fit residual badly understates how wrong the point is", () => {
+    const pts = spoiled();
+    const { errs } = residualSummary(fitSurface(pts), pts);
+    // 18 µm out of place, reported as about 1 — the spline bent to meet it
+    expect(Math.abs(errs[2])).toBeLessThan(4);
+  });
+
+  it("and it can blame the wrong point outright", () => {
+    const pts = spoiled();
+    expect(residualSummary(fitSurface(pts), pts).worst,
+      "a good neighbour takes the blame — do not present this as the culprit").not.toBe(2);
+  });
+
+  it("three points fit exactly, so a bad one is invisible", () => {
+    const pts = grid([[0, 0], [9000, 500], [3000, 6000]]);
+    pts[0].z += 18;
+    expect(residualSummary(fitSurface(pts), pts).rms).toBeLessThan(1e-6);
+  });
+
+  it("reports no worst point when there are no points", () => {
+    expect(residualSummary(null, []).worst).toBe(-1);
+  });
+});
+
+describe("leave-one-out is the honest alarm", () => {
+  const spoiled = (coords: number[][], bad: number, by = 18) => {
+    const pts = grid(coords);
+    pts[bad].z += by;
+    return pts;
+  };
+
+  it("recovers the full error at the point that was fooled", () => {
+    const cases: [number[][], number][] = [
+      [[[0, 0], [9000, 0], [0, 6000], [9000, 6000]], 2],
+      [[[0, 0], [9000, 0], [0, 6000], [9000, 6000], [4500, 3000]], 2],
+      [[[0, 0], [9000, 0], [0, 6000], [9000, 6000], [4500, 3000], [2000, 1500],
+        [7000, 4500], [4500, 300]], 4],
+    ];
+    for (const [coords, bad] of cases) {
+      const pts = spoiled(coords, bad);
+      // four points or more, so every point has an error
+      expect(Math.abs(looErrors(pts)[bad]!)).toBeGreaterThan(10);
+    }
+  });
+
+  it("stays quiet when every point agrees", () => {
+    const pts = grid([[0, 0], [9000, 0], [0, 6000], [9000, 6000], [4500, 3000]]);
+    for (const e of looErrors(pts)) expect(Math.abs(e!)).toBeLessThan(2); // five points, so every error is there
+  });
+
+  it("names the culprit once there are enough points to spare one", () => {
+    const coords = [[0, 0], [9000, 0], [0, 6000], [9000, 6000], [4500, 3000],
+      [2000, 1500], [7000, 4500], [4500, 300]];
+    for (const bad of [0, 2, 4]) {
+      const errs = looErrors(spoiled(coords, bad));
+      const worst = errs.reduce<number>((b, v, i) => (Math.abs(v!) > Math.abs(errs[b]!) ? i : b), 0); // eight points: none missing
+      expect(worst).toBe(bad);
+    }
+  });
+
+  it("declines to answer below four points, where dropping one changes the model", () => {
+    const pts = grid([[0, 0], [9000, 500], [3000, 6000]]);
+    expect(looErrors(pts)).toEqual([null, null, null]);
+  });
+});
+
+describe("affine surfaces, for fixed Z and reused runs", () => {
+  it("a flat one reads the same everywhere", () => {
+    const m = affineSurface({ c: -412, width: 18634, height: 13310 });
+    expect(surfaceZ(m, 0, 0)).toBeCloseTo(-412, 9);
+    expect(surfaceZ(m, 18634, 13310)).toBeCloseTo(-412, 9);
+  });
+
+  it("tilt is expressed across the full extent", () => {
+    const m = affineSurface({ a: 96, b: 0, c: -412, width: 18634, height: 13310 });
+    expect(surfaceZ(m, 18634, 0) - surfaceZ(m, 0, 0)).toBeCloseTo(96, 6);
+  });
+});
+
+describe("the primitives underneath", () => {
+  it("solve returns null rather than nonsense on a singular system", () => {
+    expect(solve([[1, 2], [2, 4]], [1, 2])).toBeNull();
+  });
+
+  it("nonCollinear sees a line as a line", () => {
+    expect(nonCollinear([-3, -1, 1, 3], [0, 0, 0, 0])).toBe(false);
+    expect(nonCollinear([-3, -1, 1, 3], [0, 2, -1, 1])).toBe(true);
+  });
+});

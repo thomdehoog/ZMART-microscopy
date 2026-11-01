@@ -1,0 +1,69 @@
+/**
+ * A photograph of the neuroglancer engine alone on a real position store,
+ * with the console listened to — a shader that fails to compile draws a
+ * wrong picture and says why only in the console, which nobody sees in the
+ * native window. Point it at a served store with ZV_SOURCE; centre and zoom
+ * with ZV_CENTRE ("x,y" in µm) and ZV_ZOOM (µm per pixel).
+ */
+import { test } from "@playwright/test";
+import type { EngineViewer } from "./engines/neuroglancer-under/viewer.ts";
+
+declare global {
+  interface Window {
+    /** The engine this spec opens alone, for the spec to steer and ask. */
+    __engineLook?: EngineViewer;
+    /** The page colour to open the engine on, when a run sets one. */
+    __engineLookBackground?: string;
+  }
+}
+
+test("the engine draws the store, and the console says nothing", async ({ page }) => {
+  test.setTimeout(60_000);
+  const source = process.env.ZV_SOURCE;
+  test.skip(!source, "set ZV_SOURCE to a served store address");
+  const [cx, cy] = (process.env.ZV_CENTRE ?? "0,0").split(",").map(Number);
+  const zoom = Number(process.env.ZV_ZOOM ?? "2");
+
+  const said: string[] = [];
+  page.on("console", (message) => {
+    const text = message.text();
+    // vite's own chatter is not the engine's
+    if (text.startsWith("[vite]")) return;
+    said.push(`${message.type()}: ${text}`);
+  });
+  page.on("pageerror", (why) => said.push(`pageerror: ${why.message}`));
+  const asked: string[] = [];
+  page.on("response", (response) => {
+    const url = response.url();
+    if (url.includes("/data/")) {
+      asked.push(`${response.status()} ${url.split("/data/")[1]}`);
+    }
+  });
+
+  await page.goto("/?backend=pretend");
+  await page.evaluate(async ({ source, cx, cy, zoom }: { source: string; cx: number; cy: number; zoom: number }) => {
+    const host = document.createElement("div");
+    host.id = "engine-look-host";
+    host.style.cssText =
+      "position:fixed;inset:0;z-index:999;background:#202830;";
+    document.body.append(host);
+    const { openerFor } = await import("/@zmart-workflows/target_acquisition/canvas/engines.ts");
+    const openViewer = await openerFor("neuroglancer-under");
+    window.__engineLook = await openViewer(host, {
+      acquisitions: source.split(" ").map((url, at) => ({ url, name: `looked-at ${at}` })),
+      background: window.__engineLookBackground ?? "#202830",
+    });
+    window.__engineLook.setView({ centre: { x: cx, y: cy }, zoom });
+  }, { source: source!, cx, cy, zoom }); // test.skip above ends the test without a source
+  await page.waitForTimeout(20000);
+  await page.evaluate(({ cx, cy, zoom }) => {
+    window.__engineLook!.setView({ centre: { x: cx, y: cy }, zoom });
+  }, { cx, cy, zoom });
+  await page.waitForTimeout(8000);
+  await page.screenshot({ path: "test-results/engine-look.png" });
+  const layers = await page.evaluate(() =>
+    window.__engineLook?.layersForMeasurement?.() ?? null);
+  console.log("layers:", JSON.stringify(layers, null, 1));
+  console.log("console said:", JSON.stringify(said, null, 2));
+  console.log("data asked for:", JSON.stringify(asked, null, 1));
+});

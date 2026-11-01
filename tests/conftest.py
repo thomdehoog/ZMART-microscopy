@@ -1,10 +1,19 @@
 """What every plug-in check shares: where the clones are, and a clean computer.
 
 The checks run in the ``zmart-integration`` environment that ``install.py``
-made, with the five blocks installed from GitHub. Three repositories are also
+made, with the five blocks installed from GitHub. Two repositories are also
 cloned into ``work/`` for the parts that are not installed as packages (the
-controller's mock driver, the analysis workflows, the interface's walk);
-``ZMART_INTEGRATION_WORK`` points somewhere else when they live elsewhere.
+controller's mock driver, and the interface's checkout, which builds the
+operator page and runs the walk); ``ZMART_INTEGRATION_WORK`` points somewhere
+else when they live elsewhere.
+
+The workflows the checks run are this repository's own, in ``workflows/``:
+the interface workflow *Target acquisition* in
+``workflows/non-coders/interface/``, and the analysis pipelines it runs in
+``workflows/non-coders/analysis/``. The interface brings no workflow of its
+own, so every check is pointed at that folder, the way a microscope PC is
+(``ZMART_INTERFACE_WORKFLOWS``), and the workflow is imported by its own
+folder's name, ``target_acquisition``, as the interface's bridge imports it.
 
 Two things keep the checks honest:
 
@@ -38,6 +47,14 @@ REPO = Path(__file__).resolve().parents[1]
 WORK = Path(os.environ.get("ZMART_INTEGRATION_WORK", REPO / "work")).resolve()
 REPORTS = WORK / "reports"
 
+#: This repository's folder of interface workflows, and the analysis pipelines they run.
+INTERFACE_WORKFLOWS = REPO / "workflows" / "non-coders" / "interface"
+ANALYSIS = REPO / "workflows" / "non-coders" / "analysis"
+
+# The checks that import the workflow in this Python find it by its own name.
+if str(INTERFACE_WORKFLOWS) not in sys.path:
+    sys.path.insert(0, str(INTERFACE_WORKFLOWS))
+
 #: The five blocks, by the name pip knows them, and the repository each comes from.
 BLOCKS = {
     "zmart-controller": "ZMART-controller",
@@ -67,6 +84,15 @@ def write_report(name: str, content: dict) -> Path:
     path = REPORTS / f"{name}.json"
     path.write_text(json.dumps(content, indent=2, default=str), encoding="utf-8")
     return path
+
+
+@pytest.fixture(autouse=True)
+def our_workflows(monkeypatch):
+    """The interface runs this repository's workflows, in this Python and in every fresh one."""
+    monkeypatch.setenv("ZMART_INTERFACE_WORKFLOWS", str(INTERFACE_WORKFLOWS))
+    monkeypatch.setenv("ZMART_ANALYSIS_WORKFLOWS", str(ANALYSIS))
+    paths = [str(INTERFACE_WORKFLOWS), *filter(None, [os.environ.get("PYTHONPATH")])]
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(paths))
 
 
 @pytest.fixture(autouse=True)

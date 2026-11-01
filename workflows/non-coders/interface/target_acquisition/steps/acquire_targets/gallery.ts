@@ -1,0 +1,434 @@
+/**
+ * Step 9's channel — the acquired targets and their image pairs.
+ *
+ * Acquisition happens on the canvas, where the physical target tiles stand;
+ * this is what stands beside it. A list of the tiles imaged so far, the way
+ * the focus step lists its points, and under it one pair -- the overview crop
+ * at the chosen tile and its acquired frame. Choosing a row chooses the tile
+ * on the canvas, and pressing an acquired frame chooses its row.
+ *
+ * The widget owns its own markup and rebuilds from the run whenever it is
+ * mounted, so nothing stale survives a walk away and back. It never reaches
+ * for the page around it: everything it shows and everything it changes
+ * arrives in `ctx`.
+ */
+
+/** The side of one picture, in pixels. */
+const CROP_PX = 132;
+
+import { previewMessage } from "../../shared/preview-message.ts";
+import type { FoundObject } from "../../backend/verbs.ts";
+import type { Recording } from "../../microscope/recordings.ts";
+import type { SlotKey } from "../../shared/page-helpers.ts";
+import type { Snap } from "../../shared/progress.ts";
+import type { PlanTile, TargetFocussing, TargetTile } from "../../shared/run-document.ts";
+
+/** A small picture's drawing: the brush, the picture once it has arrived, and the side in pixels. */
+type DrawPicture = (paint: CanvasRenderingContext2D, img: HTMLImageElement | null, px: number) => void;
+
+/** The field a target was found in, as the pair crops it: the plan's position, the window acquired at the target, and where the field's small copy is. */
+export interface CropField extends PlanTile {
+  cropX: number;
+  cropY: number;
+  cropFrameUm: number | null;
+  picture: string | null;
+}
+
+/** What the gallery asks of the shared recorder, for the target focussing job. */
+export interface FocusRecordingAsk {
+  label: string;
+  key: SlotKey;
+  unnamed?: boolean;
+  takes?: string | null;
+  retakes?: string | null;
+  warn?: (record: Recording) => string | null;
+  changed: () => void;
+}
+
+/** The gallery's handle: where the step's press goes, and how the run and the canvas tell it what changed. */
+export interface Gallery {
+  actionSlot: HTMLElement;
+  rebuild(): void;
+  progress(snap: Snap & { failed?: boolean }): void;
+  chosen(): void;
+}
+
+/** What the gallery shows and what it changes, handed in by its channel (see `mount`). */
+export interface GalleryContext {
+  acquired(): string[];
+  tileByKey(key: string): TargetTile | undefined;
+  cellById(id: string | null): FoundObject | undefined;
+  fieldOf(tile: TargetTile, cell: FoundObject): CropField;
+  pictureOf(key: string): string | null;
+  selected(): string | null;
+  quiet?(): boolean;
+  select(key: string | null, opts?: { quietly?: boolean }): void;
+  recordingSlot(into: HTMLElement, opts: FocusRecordingAsk): void;
+  changed?(): void;
+  focusOf?(key: string): TargetFocussing | null;
+  focusOn?(): boolean;
+  setFocusOn?(on: boolean): void;
+  zOffsetUm?(): number;
+  setZOffsetUm?(v: number): void;
+  sameSettingsElsewhere(record: Recording): string | null;
+}
+
+/**
+ * One small picture: the viewer's copy at `src`, drawn by `draw(paint, img,
+ * px)` once it arrives, into a canvas `px` pixels a side. A backend that
+ * saves nothing gives no address, and the picture is drawn dark, with `draw`
+ * given nothing to draw from.
+ *
+ * The canvas is drawn at the size it is shown, times the screen's density,
+ * rather than at a fixed few pixels stretched by the page: a fixed copy
+ * blurred every pair however sharp the frame was. Until it is laid out it
+ * is drawn at `CROP_PX`, and drawn again when its box is known or changes.
+ */
+function smallPicture(src: string | null, draw: DrawPicture): HTMLCanvasElement {
+  const cv = document.createElement("canvas");
+  cv.width = CROP_PX; cv.height = CROP_PX;
+  if (src) cv.dataset.picture = src;
+  let img: HTMLImageElement | null = null;
+  let failed = false;
+  const paint = () => {
+    const density = window.devicePixelRatio || 1;
+    const px = Math.max(CROP_PX, Math.round((cv.clientWidth || 0) * density)) || CROP_PX;
+    if (cv.width !== px) { cv.width = px; cv.height = px; }
+    /* A canvas made here, never asked for another kind of context. */
+    const brush = cv.getContext("2d")!;
+    brush.fillStyle = "#05090e";
+    brush.fillRect(0, 0, px, px);
+    draw(brush, img, px);
+    if (failed) previewMessage(brush, px, px, "Preview unavailable");
+  };
+  paint();
+  if (src) {
+    /* A picture asked for the moment its capture lands is not published
+       yet, and one failed answer left "Preview unavailable" for good
+       (STELLARIS, 2026-10-26). So it is asked again, a little later each
+       time, for about a minute, while the canvas is still shown. */
+    let tries = 0;
+    const ask = () => {
+      const requested = new Image();
+      requested.onload = () => {
+        img = requested;
+        failed = false;
+        cv.removeAttribute("aria-label");
+        paint();
+      };
+      requested.onerror = () => {
+        failed = true;
+        cv.setAttribute("aria-label", "Preview unavailable");
+        paint();
+        if (tries < 6) setTimeout(() => { if (cv.isConnected || tries === 0) ask(); }, 1000 * 2 ** tries++);
+      };
+      requested.src = src;
+    };
+    ask();
+  }
+  if (typeof ResizeObserver !== "undefined") {
+    const watch = new ResizeObserver(() => { if (cv.isConnected) paint(); });
+    watch.observe(cv);
+  }
+  return cv;
+}
+
+/**
+ * The drawing is always smoothed, at the best quality the browser has: the
+ * overview crop is a small piece of a field blown up many times, and drawn
+ * as blocks it read as a mosaic rather than as the cells the frame beside
+ * it shows. `sourcePx` and `drawnPx` are kept for the callers, which know
+ * how far each picture is blown up, should the rule ever want them.
+ */
+function scaleFor(paint: CanvasRenderingContext2D, sourcePx: number, drawnPx: number): void {
+  void sourcePx; void drawnPx;
+  paint.imageSmoothingEnabled = true;
+  paint.imageSmoothingQuality = "high";
+}
+
+/**
+ * The field the target was found in, cropped to the exact physical window
+ * acquired at target magnification. Its pixels are coarser, but its centre
+ * and extent are identical, so differences are resolution rather than zoom.
+ * `field` is the plan's position plus `picture`, the field's own
+ * small copy, which covers exactly the frame.
+ */
+function fieldCrop(cell: FoundObject, field: CropField): HTMLCanvasElement {
+  /* Finite, so a number. */
+  const frameUm = Number.isFinite(field.cropFrameUm) && field.cropFrameUm! > 0
+    ? field.cropFrameUm! : Math.max(80, (cell.r as number) * 8);
+  const half = frameUm / 2;
+  const centreX = Number.isFinite(field.cropX) ? field.cropX : cell.x;
+  const centreY = Number.isFinite(field.cropY) ? field.cropY : cell.y;
+  const cv = smallPicture(field.picture, (paint, img, px) => {
+    if (img) {
+      const perUm = img.naturalWidth / field.frameUm;
+      const sx = (centreX - half - (field.x - field.frameUm / 2)) * perUm;
+      const sy = (centreY - half - (field.y - field.frameUm / 2)) * perUm;
+      scaleFor(paint, 2 * half * perUm, px);
+      paint.drawImage(img, sx, sy, 2 * half * perUm, 2 * half * perUm, 0, 0, px, px);
+    }
+  });
+  cv.dataset.comparison = "overview";
+  cv.dataset.frameUm = String(frameUm);
+  cv.dataset.centreX = String(centreX);
+  cv.dataset.centreY = String(centreY);
+  return cv;
+}
+
+/** The target's own frame, as it was imaged. */
+function targetFrame(src: string | null, field: CropField): HTMLCanvasElement {
+  const cv = smallPicture(src, (paint, img, px) => {
+    if (img) {
+      scaleFor(paint, img.naturalWidth, px);
+      paint.drawImage(img, 0, 0, px, px);
+    }
+  });
+  cv.dataset.comparison = "target";
+  cv.dataset.frameUm = String(field.cropFrameUm ?? "");
+  cv.dataset.centreX = String(field.cropX ?? "");
+  cv.dataset.centreY = String(field.cropY ?? "");
+  return cv;
+}
+
+import { progressBox } from "../../shared/progress.ts";
+import { sideGroup } from "zmart-interface/api";
+
+export default {
+  id: "acquire",
+  label: "Acquire Targets",
+
+  /**
+   * Build the channel and fill it from the run.
+   *
+   * `ctx` carries what this step works with and nothing else:
+   *   `acquired`   the unique tile keys, in acquisition order
+   *   `tileByKey`  the physical tile for an acquisition key
+   *   `selected`   the key of the tile whose pair is shown, or null
+   *   `select(key)` choose that tile, on the canvas as well as here
+   *   `cellById`   a target's own details, for the crops and the caption
+   *   `fieldOf(tile, cell)` the field it was found in: the plan's position, and
+   *                `picture`, where the field's small copy is (or null)
+   *   `pictureOf(key)` where that target tile's frame is (or null)
+   *   `recordingSlot(host, opts)`  the shared recorder, for the target focussing job
+   *   `changed()`  say that something the rest of the page shows has changed
+   *
+   * Returns a handle whose `rebuild()` fills the list in again — what the
+   * step's own run calls as the targets are acquired — and whose `chosen()`
+   * answers a choice made on the canvas.
+   */
+  mount(host: HTMLElement, ctx: GalleryContext): Gallery {
+    const side = document.createElement("div");
+    side.className = "gallery-side";
+
+    /* Acquisition actions stand below the comparison: once there is a
+       current pair, the two rerun choices belong directly beneath it. */
+    const act = document.createElement("div");
+    act.className = "acquire-action side-act";
+
+    /* How the run is going, above what it has made: hidden until the press
+       is taken, then the tile being taken at the left and the arithmetic at
+       the right, the way the detection step tells it. */
+    const progress = progressBox("Acquisition progress");
+    progress.doing.id = "acquire-doing";
+    progress.count.id = "acquire-count";
+
+    const listBox = sideGroup("Target list");
+    /* The list, in the focus step's own clothes: a row a target, the chosen
+       one lit, the box capped and scrolling past its few rows. */
+    const list = document.createElement("div");
+    list.className = "point-list";
+    list.id = "target-list";
+    /* The list needs no instruction/tally strip: choosing a row is evident
+       from the selected state and the comparison immediately below it. */
+    listBox.body.append(list);
+
+    /* The one pair on show: the chosen target's. */
+    const pairBox = sideGroup("Overview / Target scan");
+    const pair = document.createElement("div");
+    pair.className = "pairs";
+    pair.id = "pairs";
+    pairBox.body.append(pair);
+
+    /* Focussing before each target: off, and every target is imaged at the
+       height the focus map gives; on, a focussing job of its own is read
+       here, at the targets' magnification, and each target gets a stack
+       under it before its capture. The switch stands in a box of its own
+       under the target settings; the recording line appears under the
+       switch only when it is on. */
+    const focusBox = sideGroup("Target focussing settings");
+    focusBox.group.id = "target-focus";
+    const focusRow = document.createElement("label");
+    focusRow.className = "focus-switch";
+    const focusOn = document.createElement("input");
+    focusOn.type = "checkbox";
+    focusOn.id = "target-focus-on";
+    focusOn.checked = !!ctx.focusOn?.();
+    focusRow.append(focusOn, " Focus before each target");
+    const focusRecording = document.createElement("div");
+    focusRecording.id = "target-focus-recording";
+    const showTheFocusLine = () => {
+      focusRecording.hidden = !focusOn.checked;
+      if (!focusOn.checked) return;
+      ctx.recordingSlot(focusRecording, {
+        label: "Target focussing settings", key: "targetFocus",
+        unnamed: true,
+        takes: "Import target focussing settings",
+        retakes: "Update",
+        warn: ctx.sameSettingsElsewhere,
+        changed: () => ctx.changed?.(),
+      });
+    };
+    focusOn.addEventListener("change", () => {
+      ctx.setFocusOn?.(focusOn.checked);
+      showTheFocusLine();
+    });
+    focusBox.body.append(focusRow, focusRecording);
+    showTheFocusLine();
+
+    /* A height added to every target on top of where it would be taken --
+       the map's height, or the peak of its own stack when focussing is on.
+       One number, in its own box, so it is seen (Thom, 2026-09-28). */
+    const offsetBox = sideGroup("Target Z offset");
+    offsetBox.group.id = "target-offset";
+    const offsetRow = document.createElement("div");
+    offsetRow.className = "param";
+    offsetRow.innerHTML = '<label>Z offset</label><input type="number" step="0.5" id="target-z-offset"><span class="hint">µm</span>';
+    /* Written into the row the line before. */
+    const offsetInput = offsetRow.querySelector("input")!;
+    offsetInput.value = String(ctx.zOffsetUm?.() ?? 0);
+    offsetInput.addEventListener("input", () => {
+      const v = Number(offsetInput.value);
+      if (Number.isFinite(v)) ctx.setZOffsetUm?.(v);
+    });
+    offsetBox.body.append(offsetRow);
+
+    side.append(focusBox.group, offsetBox.group, progress.group, listBox.group, pairBox.group, act);
+    host.append(side);
+
+    const targetIdOf = (tile: TargetTile | undefined): string | null => tile?.targetId ?? tile?.covers?.[0] ?? null;
+    /* Only acquisition keys whose tile and anchor target the run still knows:
+       a re-discovery invalidates the old ones, and an orphan card cannot say
+       which overview field supplies its comparison. */
+    const known = () => ctx.acquired().filter((key) => {
+      const tile = ctx.tileByKey(key);
+      return tile && ctx.cellById(targetIdOf(tile));
+    });
+
+    /** One row of the list: its place, its name, and where it is. */
+    const rowFor = (key: string, index: number) => {
+      /* Only known keys are listed: the run still has both. */
+      const tile = ctx.tileByKey(key)!;
+      const cell = ctx.cellById(targetIdOf(tile))!;
+      const row = document.createElement("div");
+      row.className = "point-row";
+      row.dataset.target = key;
+      row.setAttribute("aria-current", String(key === ctx.selected()));
+      const pick = document.createElement("button");
+      pick.className = "point-pick"; pick.type = "button";
+      pick.setAttribute("aria-label", `choose target tile ${index + 1} for ${cell.id}`);
+      const names = tile.covers?.length ? tile.covers.join(", ") : cell.id;
+      pick.innerHTML =
+        `<span class="idx">${index + 1}</span>` +
+        `<span class="name">${names}</span>` +
+        `<span>${(tile.x / 1000).toFixed(2)}, ${(tile.y / 1000).toFixed(2)} mm</span>`;
+      pick.addEventListener("click", () => ctx.select(key));
+      row.append(pick);
+      return row;
+    };
+
+    /** The pair on show: the chosen target's pictures and caption. */
+    const pairFor = (key: string, tile: TargetTile, cell: FoundObject, field: CropField, picture: string | null) => {
+      const card = document.createElement("div");
+      card.className = "pair";
+      card.dataset.target = key;
+
+      const imgs = document.createElement("div");
+      imgs.className = "imgs";
+      imgs.append(fieldCrop(cell, field), targetFrame(picture, field));
+
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.append(document.createTextNode(
+        `${cell.id} · ${(tile.x / 1000).toFixed(2)}, ${(tile.y / 1000).toFixed(2)} mm`));
+      /* Which height the target was imaged at, when it was focussed first:
+         the peak, or the map's height when the stack showed none. */
+      const focus = ctx.tileByKey(key) && ctx.focusOf?.(key);
+      if (focus) {
+        const line = document.createElement("div");
+        line.className = focus.found ? "focus-note" : "focus-note warn";
+        line.textContent = focus.found
+          ? `focussed at ${Number(focus.z_peak_um).toFixed(1)} µm`
+          : "focus not found, imaged at the map's height";
+        meta.append(line);
+      }
+
+      card.append(imgs, meta);
+      return card;
+    };
+
+    /* The list follows the run; the pair follows the choice. */
+    const showTheList = () => {
+      list.textContent = "";
+      const ids = known();
+      if (!ids.length) {
+        const none = document.createElement("div");
+        none.className = "none";
+        none.textContent = "Nothing acquired yet.";
+        list.append(none);
+      }
+      ids.forEach((id, index) => list.append(rowFor(id, index)));
+    };
+    let pairShown: string | null = null;
+    const showThePair = () => {
+      const key = ctx.selected();
+      const tile = key === null ? null : ctx.tileByKey(key);
+      const cell = tile ? ctx.cellById(targetIdOf(tile)) : null;
+      /* A cell is looked up only for a tile. */
+      const field = cell ? ctx.fieldOf(tile!, cell) : null;
+      const picture = key === null ? null : ctx.pictureOf(key);
+      /* Display controls change the query on these addresses without changing
+         the selected target. Key the cache by the actual pictures, so the
+         visible pair refreshes immediately instead of waiting for the user to
+         select another row and come back. */
+      const signature = key === null ? null : `${key}\u0000${field?.picture ?? ""}\u0000${picture ?? ""}`;
+      if (signature === pairShown && pair.childElementCount) return;
+      pairShown = signature;
+      pair.textContent = "";
+      /* The field is there whenever the cell is. */
+      if (key !== null && tile && cell) pair.append(pairFor(key, tile, cell, field!, picture));
+    };
+
+    const rebuild = () => {
+      /* The operator's choice outlives a rebuild while its target is still
+         acquired. Otherwise the pair follows the newest frame as the run
+         grows -- a follow is quiet, so it keeps following. Until something
+         is acquired there is nothing to list or to show, and the boxes wait
+         rather than stand empty. */
+      const ids = known();
+      listBox.group.hidden = !ids.length;
+      pairBox.group.hidden = !ids.length;
+      const chosen = ctx.selected();
+      if (chosen === null || !ids.includes(chosen) || ctx.quiet?.()) ctx.select(ids.at(-1) ?? null, { quietly: true });
+      showTheList();
+      showThePair();
+    };
+
+    rebuild();
+    return {
+      actionSlot: act,
+      rebuild,
+      progress: (snap: Snap & { failed?: boolean }) => {
+        progress.say(snap);
+        if (snap.ended && !snap.failed) progress.group.style.display = "none";
+      },
+      /** The choice changed -- here, or on the canvas. */
+      chosen() {
+        for (const row of list.querySelectorAll<HTMLElement>(".point-row")) {
+          row.setAttribute("aria-current", String(row.dataset.target === ctx.selected()));
+        }
+        showThePair();
+      },
+    };
+  },
+};

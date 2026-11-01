@@ -70,7 +70,11 @@ talks to the controller directly.
 This repository assembles five of them (the AI agent is installed on its own): `install.py`
 installs them from GitHub into one environment, the checks in `tests/` ask the questions where
 they meet, and `run_walk.py` walks the operator window from start to finish on a pretend
-microscope. The [workflows](workflows/) composed from the blocks will live here too.
+microscope. And the [workflows](workflows/) we run live here: the blocks are general and are
+installed, while the workflows are ours. There is one path for people who do not write code (the
+operator window's workflow, *Target acquisition*, with its own analysis pipelines) and one for
+people who write Python (notebooks, with their own copy of the pipelines). The blocks keep
+examples of their own, for their tests and to learn from, and those are not installed.
 
 The code that used to live in this repository, before the blocks had repositories of their own,
 is kept in its git history and in the archive branch.
@@ -93,11 +97,21 @@ To check the blocks together before they are promoted to `main`, install a branc
 branches without their requirements first, and their requirements afterwards, because each block
 names the others by their plain GitHub address and pip refuses one package asked for at two.
 
+To check work in another GitHub account before it is brought to the ZMB's repositories, name the
+account with `--github`. For example, the change that moved the workflows here is checked with:
+
+```bash
+python install.py --github thomdehoog --branch release-candidate \
+    --branch zmart-analysis=examples-and-workflows --branch zmart-interface=examples-and-workflows
+```
+
 `install.py` creates the environment `zmart-integration` from [`environment.yml`](environment.yml)
-(conda-forge only), installs the five blocks with pip straight from GitHub, clones the controller,
-the analysis and the interface into `work/` (for their mock driver, workflows and browser walk,
-which are not part of the packages), makes the analysis environments the walk needs if they are
-missing, and installs the walk's Node.js tools and Chromium. What was installed, at which commit,
+(conda-forge only), installs the five blocks with pip straight from GitHub, clones the controller
+and the interface into `work/` (for the controller's mock driver, and for the interface's tools,
+which build the operator page from our workflows and run their walk; neither is part of a
+package), makes the analysis environments the walk needs from the pipelines in
+`workflows/non-coders/analysis` if they are missing, and installs the walk's Node.js tools and
+Chromium. What was installed, at which commit,
 is written to `work/install-record.json`; the walk keeps a screenshot of every screen and its log
 in `work/walk/<date>/`.
 
@@ -108,7 +122,13 @@ which writes a small script to the temporary folder and runs it.
 
 ### Status
 
-This is a release candidate. The latest run, on a Windows 11 workstation on 11 October 2026,
+This is a release candidate, 0.1.0rc1: the first in which the workflows live here. It has been
+checked on Linux on 1 November 2026, with the blocks from the `thomdehoog` account (the command
+above): the plug-in checks pass, except the two that run the analysis in its conda environments,
+which that computer did not have; our page check passes; and the walk passes, through all ten
+steps, on our own Target acquisition. The full check on a Windows workstation is still to come.
+
+Before that, the earlier release candidate was checked like this. The latest run, on a Windows 11 workstation on 11 October 2026,
 checked the blocks together before their promotion to `main`: the `release-candidate` branch of
 the controller (0.2.0, `4b9ac5c`), the drivers (0.1.0rc1, `6710a7b`), the viewer (0.5.0rc4,
 `5a291df`) and the interface (0.1.0rc1, `24a0a0f`), with the analysis engine from `main`
@@ -150,6 +170,12 @@ The plug-in checks are in [`tests/`](tests), one file per place where blocks mee
 | `test_analysis_runs.py` | the engine finds the sharp plane of a focus stack in its own environment, directly and through the interface |
 | `test_viewer_serves.py` | a capture from either mock fits the controller's contract, is kept by the interface the way its bridge keeps a scan's field (the driver's own OME-Zarr store, or one written from its files), and is served by the viewer |
 | `test_bridge_answers.py` | the interface's bridge lists the kidney mock first, serves the page, answers before Connect, passes a capture on as the controller's answer, keeps its own mock when another driver is installed under that name, and the walk's bridge runs the installed interface |
+| `test_our_page_is_built.py` | the operator page committed beside our workflows is exactly what the interface's build makes from them |
+
+The checks run our own workflow, *Target acquisition* in `workflows/non-coders/interface`, on our
+own pipelines in `workflows/non-coders/analysis`: the interface is pointed at that folder
+(`ZMART_INTERFACE_WORKFLOWS`), as a microscope PC is. Each copy of the analysis pipelines has its
+own tests too, run from its folder (`workflows/README.md` says how).
 
 Every check gets an empty ZMART configuration folder of its own, and each driver is plugged in in
 a fresh Python, so nothing on the computer changes the answer and nothing is left behind.

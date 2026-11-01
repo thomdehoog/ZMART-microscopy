@@ -1,0 +1,57 @@
+# Object analysis for one image tile, with Cellpose: read the image, find
+# the objects, measure each, publish the table. The operator page calls this
+# "robust".
+#
+# What to submit with each job (see README.md, "Input"):
+#
+#   image_path             an OME-Zarr position or an OME-TIFF
+#   tile_id                e.g. ["R0", 3, 7]
+#   tile_stage_xy_um       the tile's stage position
+#   tile_z_um              capture height; optional
+#   source_pixel_size_um   [x, y]
+#   source_image_size_px   [nx, ny]
+#   image_to_stage         the 2x2 matrix from image to stage axes
+#   channels               up to three channel indices; null for all
+#
+# What comes back, under `object_analysis`: the object table, one row per
+# object, with its features and stage position.
+
+metadata:
+  purpose: "Object-centered image analysis with Cellpose"
+  version: "1.0"
+  verbose: 1
+  functions_dir: "../steps"
+
+object_analysis:
+  - read_images:
+      channels: null
+
+  - segment_cellpose:
+      cellprob_threshold: 0.0
+      flow_threshold: 0.4
+      niter: null
+      diameter: null
+      segmentation_binning: 1
+      border_margin_px: null
+      min_area_px: null
+      max_area_px: null
+      min_equivalent_diameter_um: null
+      max_equivalent_diameter_um: null
+      # A small GPU can be slower than the processor: on a 4 GB NVIDIA T400,
+      # Cellpose took 12 s per 512x512 tile on the GPU and 7.5 s on the CPU.
+      # On such a card, time one tile each way and set false if it wins.
+      gpu: true
+
+  - measure_objects:
+      # Texture features quantise intensities into a few levels, and the top
+      # of that scale must be the same on every tile for the numbers to be
+      # comparable. Set it to the camera's full range (4095 for 12-bit
+      # data, 65535 for 16-bit). Left null, the 99.9th percentile of the
+      # pixels inside objects is used per tile.
+      intensity_scale: null
+      # Every feature family: texture (gradients, stat_texture, lbp, fft,
+      # glrlm), background (global_bg, local_bg), neighbourhood, morphology.
+      # Each becomes a gating axis on the operator page.
+      extras: [all]
+
+  - build_object_table:

@@ -4,21 +4,24 @@ Run it with the Python of the ``zmart-integration`` environment, after ``install
 
     python run_walk.py [--output FOLDER]
 
-The walk is the interface's own acceptance test,
-``zmart_interface/workflows/target_acquisition/walk.spec.ts``: Playwright
-opens the operator page in Chromium and presses through all ten steps (connect,
-carrier, overview plan, focus map, overview scan, detection, gating, target
-areas, target acquisition, and the protocol) on the interface's mock
-microscope, through the real bridge, with the focus map and the detection run
-by ZMART-analysis in their own environments.
+The walk is the acceptance test of our interface workflow, Target
+acquisition, in ``workflows/non-coders/interface/target_acquisition/walk.spec.ts``:
+Playwright opens the operator page in Chromium and presses through all ten
+steps (connect, carrier, overview plan, focus map, overview scan, detection,
+gating, target areas, target acquisition, and the protocol) on the workflow's
+mock microscope, through the real bridge, with the focus map and the detection
+run by ZMART-analysis in their own environments, on the pipelines in
+``workflows/non-coders/analysis``.
 
-The test itself lives in the interface's clone in ``work/``, but everything it
-starts must be the *installed* blocks, because that is what this repository
-checks. So the walk is told:
+The interface's checkout in ``work/`` runs it, because Playwright and the page's
+development server are the interface's tools, but everything the walk starts
+must be the *installed* blocks, because that is what this repository checks.
+So the walk is told:
 
 - ``PYTHON``: this environment's Python, which the walk starts the bridge
   with (otherwise it would take whichever ``python`` is first on the PATH);
-- ``ZMART_ANALYSIS_WORKFLOWS``: where the analysis workflows are cloned;
+- ``ZMART_INTERFACE_WORKFLOWS``: our folder of interface workflows, which the
+  page is served from and the bridge runs;
 - ``ZMART_MICROSCOPY_ROOT``: an empty configuration folder of the walk's own,
   so drivers remembered on this computer neither appear nor change;
 - ``ZMART_TEST_OUTPUT`` and ``OPERATOR_EVIDENCE_DIR``: where Playwright keeps
@@ -27,10 +30,10 @@ checks. So the walk is told:
 
 Before it starts, it asks the walk itself how it will start the bridge, and
 runs that Python, in that folder, with those options, to see where it finds
-``zmart_interface``. The walk starts it inside the interface's clone, with
-``-P`` so that the clone's own ``zmart_interface`` folder does not stand in
-front of the installed package. If the answer is the clone, the walk would
-test the clone's code rather than the installed block, and it is not started.
+``zmart_interface``. The walk starts it with ``-P``, so that no folder it
+starts in can stand in front of the installed package. If the answer is the
+interface's clone, the walk would test the clone's code rather than the
+installed block, and it is not started.
 
 Everything the walk printed is kept in ``walk.log`` in the output folder.
 
@@ -51,7 +54,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 WORK = Path(os.environ.get("ZMART_INTEGRATION_WORK", HERE / "work")).resolve()
-WALK = "zmart_interface/workflows/target_acquisition/walk.spec.ts"
+#: Our folder of interface workflows, and the walk of Target acquisition in it.
+INTERFACE_WORKFLOWS = HERE / "workflows" / "non-coders" / "interface"
+WALK = INTERFACE_WORKFLOWS / "target_acquisition" / "walk.spec.ts"
 WINDOWS = platform.system() == "Windows"
 
 
@@ -71,12 +76,12 @@ import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 const walk = await import(pathToFileURL(process.argv[1]).href);
 const python = walk.bridgePython("-c", "import zmart_interface; print(zmart_interface.__file__)");
-const said = execFileSync(python.command, python.args, { cwd: python.cwd, encoding: "utf8" });
-console.log(JSON.stringify({ ...python, imported: said.trim() }));
+const said = execFileSync(python.command, python.args, { cwd: python.cwd, env: python.env, encoding: "utf8" });
+console.log(JSON.stringify({ command: python.command, args: python.args, cwd: python.cwd, imported: said.trim() }));
 """
 
 #: The walk's file that holds ``bridgePython``, how it starts the bridge.
-LIVE_BRIDGE = "zmart_interface/workflows/target_acquisition/testing/python.ts"
+LIVE_BRIDGE = INTERFACE_WORKFLOWS / "target_acquisition" / "testing" / "python.ts"
 
 
 def where_the_walks_bridge_finds_the_interface(interface: Path, env: dict) -> dict:
@@ -87,7 +92,7 @@ def where_the_walks_bridge_finds_the_interface(interface: Path, env: dict) -> di
     tools (``npm ci`` in the clone), because the walk's file imports Playwright.
     """
     done = subprocess.run(
-        ["node", "--input-type=module", "-e", ASK_THE_WALK, str(interface / LIVE_BRIDGE)],
+        ["node", "--input-type=module", "-e", ASK_THE_WALK, str(LIVE_BRIDGE)],
         cwd=interface, env=env, capture_output=True, text=True,
     )
     if done.returncode != 0:
@@ -104,7 +109,7 @@ def walk_environment(output: Path) -> dict:
         **os.environ,
         "PATH": os.pathsep.join([*this_environments_programs(), os.environ.get("PATH", "")]),
         "PYTHON": sys.executable,
-        "ZMART_ANALYSIS_WORKFLOWS": str(WORK / "ZMART-analysis"),
+        "ZMART_INTERFACE_WORKFLOWS": str(INTERFACE_WORKFLOWS),
         "ZMART_MICROSCOPY_ROOT": str(configuration),
         "ZMART_TEST_OUTPUT": str(output / "test-results"),
         "OPERATOR_EVIDENCE_DIR": str(output / "screens"),
@@ -131,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
         "bridge_started_as": [bridge["command"], *bridge["args"][:1]],
         "bridge_folder": bridge["cwd"],
         "interface_imported_from": bridge["imported"],
-        "walk": str(interface / WALK),
+        "walk": str(WALK),
         "output": str(output),
     }
     print(json.dumps(started, indent=2), flush=True)
@@ -142,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
     began = time.monotonic()
     with (output / "walk.log").open("w", encoding="utf-8") as log:
         process = subprocess.Popen(
-            [npx, "playwright", "test", WALK], cwd=interface, env=env,
+            [npx, "playwright", "test", "target_acquisition/walk.spec.ts"], cwd=interface, env=env,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
             errors="replace",
         )

@@ -12,16 +12,19 @@ What it does, in order, and why:
    drivers, the viewer, the analysis engine and the interface with pip,
    straight from their repositories on GitHub, never from a folder on this
    computer. That way the checks see exactly what a new user would get.
-3. **The parts that are not packages.** Three things live only in the
+3. **The parts that are not packages.** Two things live only in the
    repositories, so they are cloned into ``work/``: the controller's mock
-   driver (it stays with the controller's tests), the analysis workflows
-   (recipes and steps the engine runs) and the interface's browser walk
-   (with the Node.js tools it needs, installed by ``npm ci``).
+   driver (it stays with the controller's tests) and a checkout of the ZMART
+   interface, with the Node.js tools it needs (installed by ``npm ci``), which
+   builds the operator page from this repository's workflows and runs their
+   browser walk. The workflows themselves, and the analysis pipelines they
+   run, are in this repository's ``workflows/`` folder.
 4. **The analysis environments.** Focus scoring and object detection run in
-   conda environments of their own. Each is created from its workflow's
-   conda environment file (``environments/<step>.yml``) when it does not exist
-   yet, so an environment made earlier on this computer is reused; the
-   checks in ``tests/`` then run the analysis in it.
+   conda environments of their own. Each is created from the conda
+   environment file of a pipeline in ``workflows/non-coders/analysis``
+   (``environments/<step>.yml``) when it does not exist yet, so an environment
+   made earlier on this computer is reused; the checks in ``tests/`` then run
+   the analysis in it.
 5. **The browser.** Playwright's Chromium, which the walk drives.
 
 At the end it writes ``work/install-record.json``: which commit of each block
@@ -42,6 +45,10 @@ Options:
     --branch BLOCK=NAME    this branch for one block only, for example
                            ``zmart-analysis=main``; may be given again for
                            other blocks, and wins over a plain ``--branch``
+    --github OWNER         take every block from this GitHub account
+                           instead of ``ZMB-UZH``, for example
+                           ``thomdehoog``, to check changes there before
+                           they are brought to the ZMB's repositories
 
 Author: Thom de Hoog, Center for Microscopy and Image Analysis (ZMB),
 University of Zurich (thom.dehoog@zmb.uzh.ch, thomdehoog@gmail.com).
@@ -61,32 +68,44 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 WINDOWS = platform.system() == "Windows"
 
-#: Where every block lives on GitHub.
-GITHUB = "https://github.com/ZMB-UZH"
+#: The GitHub account the blocks are released from.
+RELEASED_FROM = "ZMB-UZH"
+
+#: Where every block lives on GitHub. ``--github`` names another account, to
+#: check work there before it is brought to the ZMB's repositories.
+GITHUB = f"https://github.com/{RELEASED_FROM}"
 
 #: The five blocks, as pip is asked for them. The addresses carry no branch on
 #: purpose: the interface and the drivers name the controller, the viewer and
 #: the analysis engine by these same addresses, and pip refuses one package
 #: asked for at two different addresses. Without a branch, each repository's
 #: default branch (``main``) is installed.
-BLOCKS = {
-    "zmart-controller": f"zmart-controller @ git+{GITHUB}/ZMART-controller",
-    # The Leica extra brings what the Leica driver imports, so that it can be
-    # plugged in and checked.
-    "zmart-drivers": f"zmart-drivers[leica] @ git+{GITHUB}/ZMART-drivers",
-    "zmart-viewer": f"zmart-viewer @ git+{GITHUB}/ZMART-viewer",
-    "zmart-analysis": f"zmart-analysis @ git+{GITHUB}/ZMART-analysis",
-    # The dev extra brings pytest and the OME reader the interface's own
-    # in-process analysis uses.
-    "zmart-interface": f"zmart-interface[dev] @ git+{GITHUB}/ZMART-interface",
-}
+def blocks_at(github: str) -> dict[str, str]:
+    """The five blocks, as pip is asked for them, from the GitHub address *github*."""
+    return {
+        "zmart-controller": f"zmart-controller @ git+{github}/ZMART-controller",
+        # The Leica extra brings what the Leica driver imports, so that it can be
+        # plugged in and checked.
+        "zmart-drivers": f"zmart-drivers[leica] @ git+{github}/ZMART-drivers",
+        "zmart-viewer": f"zmart-viewer @ git+{github}/ZMART-viewer",
+        "zmart-analysis": f"zmart-analysis @ git+{github}/ZMART-analysis",
+        # The dev extra brings pytest and the OME reader the interface's own
+        # in-process analysis uses.
+        "zmart-interface": f"zmart-interface[dev] @ git+{github}/ZMART-interface",
+    }
+
+
+BLOCKS = blocks_at(GITHUB)
 
 #: The repositories cloned into work/, and what each is needed for.
 CHECKOUTS = {
     "ZMART-controller": "the mock driver, which stays with the controller's tests",
-    "ZMART-analysis": "the analysis workflows, which are not part of the package",
-    "ZMART-interface": "the browser walk and the Node.js tools it runs with",
+    "ZMART-interface": "builds the operator page from our workflows, and runs their browser walk",
 }
+
+#: The analysis pipelines our interface workflows run; the analysis
+#: environments are made from their environment files.
+ANALYSIS = HERE / "workflows" / "non-coders" / "analysis"
 
 #: The analysis environments the walk needs: focus for the focus map, and the fast
 #: object detection with its measurements.
@@ -238,9 +257,11 @@ def install_blocks(python: Path, env: dict, branches: dict[str, str]) -> None:
     viewer and the analysis) by their plain addresses, and pip refuses one
     package asked for at two addresses. So the five blocks are installed at
     the branch without their requirements first, and then everything they
-    need besides each other is installed, as each block declares it.
+    need besides each other is installed, as each block declares it. The same
+    holds for blocks taken from another GitHub account (``--github``): the
+    blocks still name each other at the ZMB's addresses.
     """
-    if set(branches.values()) == {"main"}:
+    if set(branches.values()) == {"main"} and GITHUB.endswith(f"/{RELEASED_FROM}"):
         run([python, "-m", "pip", "install", "--upgrade", *BLOCKS.values()], env=env)
         return
     addresses = [on_branch(address, branches[block]) for block, address in BLOCKS.items()]
@@ -283,7 +304,7 @@ def analysis_environments(work: Path, steps: str, env: dict) -> list[dict]:
     made = []
     for pair in filter(None, (one.strip() for one in steps.split(","))):
         workflow, step = pair.split(":")
-        described = work / "ZMART-analysis" / "workflows" / workflow / "environments" / f"{step}.yml"
+        described = ANALYSIS / workflow / "environments" / f"{step}.yml"
         name = f"ZMART--{workflow}--{step}"
         if environment_prefix(env["CONDA_EXE"], name) is not None:
             made.append({
@@ -337,8 +358,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-walk-tools", action="store_true")
     parser.add_argument("--analysis-steps", default=ANALYSIS_STEPS)
     parser.add_argument("--branch", action="append", default=[])
+    parser.add_argument("--github", default=RELEASED_FROM)
     args = parser.parse_args(argv)
     work = HERE / "work"
+
+    global GITHUB, BLOCKS
+    GITHUB = f"https://github.com/{args.github}"
+    BLOCKS = blocks_at(GITHUB)
 
     say("the environment")
     conda = find_conda()
@@ -347,7 +373,7 @@ def main(argv: list[str] | None = None) -> int:
     env = environment_for(prefix, conda)
 
     branches = branches_of(args.branch)
-    say("the five blocks, from GitHub: "
+    say(f"the five blocks, from github.com/{args.github}: "
         + ", ".join(f"{block} ({branch})" for block, branch in branches.items()))
     install_blocks(python, env, branches)
 
@@ -366,6 +392,7 @@ def main(argv: list[str] | None = None) -> int:
     record = {
         "environment": str(prefix),
         "python": str(python),
+        "github": args.github,
         "branches": branches,
         "installed": installed_record(python, env),
         "cloned": {name: commit_of(work / name, env) for name in CHECKOUTS},

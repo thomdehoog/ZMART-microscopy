@@ -1,0 +1,1834 @@
+/* ---- the microscope's colours ------------------------------------------
+   The marks drawn on the stage and the two sharpness metrics, in every
+   theme: the page's own colours are the framework's. */
+:root {
+  /* data marks — validated for BOTH surfaces, so they never change. The
+     selected green is vivid, on Thom's word: the darker green it was
+     sank into the magenta and cyan of the tissue it marks. */
+  --mark-selected: #22e05a;
+  --mark-acquired: #16a34a;
+  --mark-context: #94a3b8;
+  /* where the microscope is standing. A deep blue, on Thom's word: the red
+     it wore read as a focus point, and the page already speaks blue -- so
+     the mark joins the page's family, darker and heavier than the tiles. */
+  --mark-stage: #1e40af;
+  /* where focus is measured. Red, by the operator's ask — kept apart from
+     the error red (--bad); the stage mark wears blue now, so red carries
+     one meaning fewer. */
+  --mark-focus: #dc2626;
+  /* and the ones held, or found by the pointer: the same red turned up —
+     brighter and a little heavier. A picked point is the same thing picked
+     out, so it is the same drawing turned up rather than a different one. */
+  --mark-focus-lit: #ff1a1a;
+  /* An anchor the operator is pointing at in the list. Deeper and more
+     saturated than the resting green rather than a different hue, so it reads
+     as the same mark being singled out and not as a second kind of thing. */
+  --mark-anchor-lit: #15803d;
+  /* An anchor still waiting to be driven to. A true dark yellow: the warning
+     ink next to it is amber-800, which against green and the red stage mark
+     reads as a third red rather than as the other half of a pair. */
+  --mark-anchor-waiting: #a16207;
+  /* The two sharpness metrics, as two series on one plot. Blue for the
+     gradient and green for the other, so the pair can be told apart at a
+     glance and by name — the gradient is the blue line. */
+  --m-brenner: #0369a1;
+  --m-dct: #15803d;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --mark-anchor-lit: #86efac;
+    --mark-anchor-waiting: #facc15;
+    --mark-context: #64748b;
+  }
+}
+
+:root[data-theme="dark"] {
+  --mark-context: #64748b;
+}
+
+:root[data-theme="light"] {
+  --mark-context: #94a3b8;
+}
+
+/* ---- the canvas and the microscope's controls ---------------------------
+   The framework's stylesheet styles only what the framework draws; the
+   canvas and the controls around it are this workflow's. They come first
+   here, and the rules further down are written to win over them. */
+
+button.ghost {
+  font: inherit; font-size: 13px; font-weight: 600;
+  color: var(--ink-2); background: var(--surface-3);
+  border: 1px solid var(--line-strong); border-radius: 8px;
+  padding: 6px 11px; cursor: pointer;
+}
+button.ghost:hover:enabled { background: var(--line); color: var(--ink); }
+button.ghost:disabled { opacity: 0.45; cursor: default; }
+/* The viewer's press: the word VIEWER and the way the picture is drawn, in
+   one raised press like the acquisitions'. The select wears no box of its
+   own; the press is its box. */
+.viewer-press {
+  display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box;
+  font: inherit; font-size: 13px; font-weight: 600; line-height: 1;
+  color: var(--accent-deep); border: 1px solid var(--line-strong);
+  height: var(--control); padding: 0 4px 0 8px; user-select: none;
+}
+#view-modes {
+  width: auto; min-width: 104px; height: 24px; padding: 0 4px;
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--accent-deep);
+  background: transparent; border: none; cursor: pointer;
+}
+/* Nothing sits below the canvas: its layer controls live under Display
+   settings and Fit is on the picture itself. */
+.panel.canvas-panel.on { grid-template-rows: minmax(0, 1fr); }
+.action-hint.bad { color: var(--bad); }
+button.ghost.tiny { padding: 2px 7px; font-size: 11px; line-height: 1.4; }
+.swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+/* The readout shrinks rather than wrapping: a toolbar that changes height
+   moves the canvas under the cursor, and points get placed where they were
+   not clicked. */
+.readout {
+  margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  flex: 1 1 0; min-width: 0; text-align: right;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 8px; overflow: hidden; }
+.seg button {
+  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink-3);
+  background: var(--surface-2); border: none; border-right: 1px solid var(--line);
+  padding: 5px 10px; cursor: pointer; white-space: nowrap;
+}
+.seg button:last-child { border-right: none; }
+.seg button:not([aria-checked="true"]):not([aria-pressed="true"]):hover {
+  color: var(--ink); background: var(--surface-3);
+}
+/* Two kinds of button live in these strips and they look the same when they are
+   on. A row of engines is a choice between them, so exactly one is checked; a
+   row of layers is three switches that happen to sit together, so any number of
+   them may be pressed at once. The colour says "this one is on" in both cases,
+   which is the only thing an operator needs to read off it — said the way the
+   tool row says it, as a tint behind an accent border, so one page has one
+   picture of "this one is chosen" rather than two. */
+.seg button[aria-checked="true"],
+.seg button[aria-pressed="true"] {
+  color: var(--accent-deep); background: var(--accent-tint); border-color: var(--accent);
+}
+/* A layer cannot be turned on while there is no picture to turn it on in. Said
+   by making the button plainly unavailable rather than by letting it be pressed
+   and do nothing. */
+.seg button:disabled { opacity: 0.45; cursor: default; }
+.seg button:disabled:hover { color: var(--ink-3); background: var(--surface-2); }
+.plot-host { position: relative; min-height: 0; }
+canvas.plot { display: block; width: 100%; height: 100%; touch-action: none; }
+/* No grabbing hand. The canvas is a picture that happens to pan, not a sheet
+   of paper being shoved about, and a hand on it says the panning is the point
+   when the point is what is drawn.
+
+   The cursor answers what the next press will do instead, which only the scan
+   fields editor knows — so while that step is standing here it sets the cursor
+   itself and this is the resting state underneath. */
+.stagecv { cursor: default; }
+/* The acquired overview lies over the plan, in the same place and at the same
+   size, because it is the same square of stage seen for real rather than a
+   second view of it. It is dark, the way an unimaged region is, so a canvas
+   with nothing written into it yet looks empty rather than looking broken.
+
+   The `hidden` attribute needs saying again here: the rule above gives every
+   canvas in this panel `display: block`, and that would otherwise keep showing
+   a canvas the page had asked to put away. */
+/* **Beneath the plan, not over it.** It was written the other way — the
+   acquired picture laid over the plan, the two swapped by hiding one — and
+   that arrangement can only ever show one of them. It cannot show the picture
+   *through* the plan, which is the whole point of the layers: the operator's
+   drawing fades or has a window opened in it, and the scan appears there.
+
+   A picture on top could not do that whatever the layers did, and it is also
+   the wrong way round for what is coming: the engine that will draw this —
+   neuroglancer — cannot be made see-through at all, so it has to be at the
+   bottom or it hides everything. `viz_studio/LAYERS.md` sets that out.
+
+   The plan's own surface is cleared to nothing and its background is painted
+   by the bottom layer of its stack, so turning that layer off, or cutting a
+   window through it, is what lets this show. */
+/* The picture the run is drawn on. A plain box rather than a canvas of its
+   own: the drawing engine builds whatever surfaces it needs inside it, and the
+   workflow's layers are drawn over them. Above the scan, which sits at z-index
+   0, because the plan is drawn over what has been imaged rather than under it. */
+.stagecv { position: absolute; inset: 0; z-index: 1; }
+.stagecv > canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+/* The scan, drawn by whichever engine is chosen, at the very bottom. The engine
+   builds its own canvases inside this box, so it is a plain container rather
+   than a canvas of its own — and it takes no pointer events, because the plan
+   above it owns the gestures and hands the view down. One canvas listening and
+   one following is the only arrangement in which the two cannot disagree. */
+.picturecv { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+/* `hidden` is an attribute and `display: flex` is a rule, and the rule wins, so a
+   row of buttons the page has hidden would otherwise still be on the screen. */
+.seg[hidden] { display: none; }
+/* What the picture is doing, said quietly in the corner of it: which run is
+   open, or why it could not be. */
+.live-note {
+  position: absolute; left: 10px; bottom: 10px; z-index: 6; max-width: 70%;
+  background: rgba(5, 7, 13, 0.72); color: #e2e8f0;
+  border: 1px solid rgba(148, 163, 184, 0.35); border-radius: 7px;
+  padding: 5px 9px; font-size: 11px; font-family: var(--mono);
+}
+.live-note[hidden] { display: none; }
+.tip {
+  position: absolute; pointer-events: none; z-index: 5;
+  background: var(--screen); border: 1px solid var(--line-strong); border-radius: 7px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.14);
+  padding: 6px 9px; font-size: 12px; line-height: 1.45; color: var(--ink);
+  font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap;
+  opacity: 0; transition: opacity 0.1s;
+}
+.tip.on { opacity: 1; }
+.tip b { color: var(--ink-3); font-weight: 500; }
+/* One pair per row, however wide the channel, so the eye moves straight
+   down from overview context to the high-resolution target frame. */
+.pairs { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.pair {
+  border: 1px solid var(--line); border-radius: 9px; overflow: hidden;
+  background: var(--surface-2); display: flex; flex-direction: column;
+}
+.pair canvas { display: block; width: 100%; height: auto; background: #000; }
+.pair .meta {
+  display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+  font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums;
+}
+.legend { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.legend span { display: flex; align-items: center; gap: 6px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.dot.ring { box-shadow: 0 0 0 2px var(--screen), 0 0 0 3.5px var(--mark-selected); }
+/* A box that brings its own padding still needs the channel's margin around
+   it, which a panel of plain markup gets from `.side-pad`. More than one box
+   in there stands apart the way boxes do elsewhere in the channel. */
+.side-pad-around {
+  margin: var(--box-gap) 14px 0; display: flex; flex-direction: column; gap: var(--box-gap);
+}
+/* Laying it out with display beats the browser's own rule for `hidden`, so a
+   box that is put away has to be put away explicitly. */
+.side-pad-around[hidden] { display: none; }
+/* What a field looks like on this page, said once. The open bar in Optical
+   Configuration asks for the same two things a session does — a choice and a
+   name — so it is the same control, not one that resembles it. */
+.field select, .field input,
+.rec-new input {
+  font: inherit; font-size: 13px; color: var(--ink);
+  background: var(--surface-2); border: 1px solid var(--line-strong);
+  border-radius: 7px; height: var(--control); padding: 0 9px; width: 100%;
+}
+/* No ring while a field holds the caret — the caret says so. Said once here,
+   so a session and the open bar behave the same way as well as look it. */
+.field select:focus, .field input:focus,
+.rec-new input:focus { outline: none; }
+/* Settings of one kind sit close; one kind and the next stand apart. */
+/* ---- the carrier configuration panel ------------------------------------
+   Controls down one side, the carrier drawn beside them. The drawing is the
+   check on the numbers: a wrong pitch is hard to see in a field and obvious
+   as soon as the areas overlap. */
+/* The canvas keeps the room; a step whose work is about the frame gets a
+   column beside it. Scrolls on its own so the picture never moves. */
+/* one width, so the channel and the name above it stand in the same column */
+/* Four columns, not three: the picture's own panel (the acquisitions and
+   their channels, workflows/target_acquisition/canvas/viewer-panel.js) stands between the picture
+   and the step's channel when there is a picture server to feed it. A grid
+   given more children than columns quietly wraps them onto a second row,
+   which scrambled the whole page the first time the panel appeared. */
+.canvas-body { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto auto; min-height: 0; }
+/* The column's fold: a small handle halfway down its edge, not a strip the
+   height of the page. Pressed, the column goes and the handle stays as the
+   way back, so the canvas takes the room and nothing is lost. */
+.side-fold {
+  width: 18px; height: 64px; padding: 0; cursor: pointer; align-self: center;
+  /* A tab on the column's edge: rounded on the side that faces the
+     canvas, flat and open where it meets the column, so it reads as part
+     of it rather than a button laid beside it. */
+  border: 1px solid var(--line-strong); border-right: none; border-radius: 9px 0 0 9px;
+  background: var(--screen); color: var(--accent-deep); font: inherit; font-size: 20px;
+  /* Over the canvas's edge rather than in a column of its own: pulled back
+     by its whole width, the grid gives it no room at all, so the picture
+     runs to the column's edge and the tab lies on it. */
+  margin-left: -18px; position: relative; z-index: 4;
+  box-shadow: -2px 0 7px rgba(15, 23, 42, 0.10);
+}
+.side-fold:hover, .side-fold:focus-visible {
+  color: var(--accent); background: var(--accent-tint); border-color: var(--accent);
+}
+.side-fold > span { display: block; transform: translateY(-1px); }
+.side-fold.collapsed { border-right: 1px solid var(--line-strong); }
+.side-fold[hidden] { display: none; }
+.canvas-body > .viewer-panel { overflow-y: auto; min-height: 0; }
+.canvas-side {
+  width: var(--side-w); overflow-y: auto; min-height: 0;
+  border-left: 1px solid var(--line); background: var(--surface-2);
+  /* The column holds still while a hand works in it. The browser's scroll
+     anchoring keeps some lower element in place when content above it
+     grows, and the gate's readout growing to a second line at the first
+     point pushed the plot up by that line -- the closing press then missed
+     the first point by exactly it (measured 2026-09-03: scroll 37 -> 54). */
+  overflow-anchor: none;
+}
+.canvas-side[hidden] { display: none; }
+/* The display settings fill their column edge to edge: the viewer's panel was
+   drawn for a strip beside the picture, with a fold and a fixed width, and
+   here the tab is the fold and the column is the width. */
+.display-side > .viewer-panel { width: 100%; height: 100%; }
+.display-side > .viewer-panel > div { width: 100% !important; }
+.display-side {
+  display: flex; flex-direction: column; gap: 0;
+  padding: 0;
+}
+/* The canvas's own layers stand under the picture's settings, at the foot
+   of the column: the picture is what the column is about. */
+.display-side > .display-layer-settings { order: 2; }
+.display-side[hidden] { display: none; }
+.display-side > .viewer-panel { flex: 1 1 auto; height: auto; min-height: 0; }
+.display-layer-settings {
+  flex: none; margin: var(--box-gap) 14px;
+}
+.display-layer-settings .side-group-body { gap: 10px; }
+.display-layer-settings #stage-layers { align-items: flex-start; }
+.display-layer-settings .layer-extra {
+  width: 100%; margin: 2px 0 0; padding-top: 9px; border-top: 1px solid var(--line);
+  justify-content: space-between; flex-wrap: wrap;
+}
+/* In the column the panel wears the page's boxes: its rows keep their own
+   inset, so the box holds them without a second one. */
+.display-side .viewer-panel .side-group-body { padding: 10px 2px; gap: 0; }
+/* The channel's edge, made draggable. It sits over the channel's own border
+   so there is no second line — the affordance is the cursor and the tint. */
+.side-divider { width: 6px; margin-right: -6px; cursor: col-resize; z-index: 2; }
+.side-divider:hover, .side-divider.dragging { background: var(--accent-line); }
+.side-divider[hidden] { display: none; }
+/* The fade and the lock, in a strip beside the row of layer buttons.
+   Separate from that row on purpose: the buttons are a joined set of switches
+   and read as one control, and a slider dropped into the middle of them reads
+   as something having gone wrong with the page. */
+.layer-extra { display: inline-flex; align-items: center; gap: 8px; margin-left: 8px; }
+.layer-fade {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12.5px; font-weight: 600; color: var(--ink-3);
+}
+.layer-fade input[type="range"] { width: 96px; accent-color: var(--accent); }
+/* The lock is a switch like the layer buttons, so it is given their look
+   rather than a look of its own — an operator should not have to learn two
+   kinds of switch in one toolbar. */
+.layer-extra button[data-lock] {
+  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink-3);
+  background: var(--surface-2); border: 1px solid var(--line-strong);
+  border-radius: 8px; padding: 4px 10px; cursor: pointer;
+}
+.layer-extra button[data-lock]:not([aria-pressed="true"]):hover {
+  color: var(--ink); background: var(--surface-3);
+}
+.layer-extra button[data-lock][aria-pressed="true"] {
+  background: var(--accent-tint); color: var(--accent-deep); border-color: var(--accent);
+}
+/* The layer chips in Display settings, and the dial beside them. They read as
+   switches rather than as the checkboxes that were here before, because that
+   is what they are: any number may be on at once, and the colour is the only
+   thing an operator has to read off them. */
+.layer-chip {
+  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink-3);
+  background: var(--surface-2); border: 1px solid var(--line-strong);
+  border-radius: 7px; padding: 3px 9px; cursor: pointer; white-space: nowrap;
+}
+.layer-chip:not([aria-pressed="true"]):hover { color: var(--ink); background: var(--surface-3); }
+.layer-chip[aria-pressed="true"] {
+  background: var(--accent-tint); color: var(--accent-deep); border-color: var(--accent);
+}
+#stage-layers { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+/* The canvas's own row, under the tab and above the picture. The picture never
+   reaches the top edge, so nothing has to float over it: the presses that say
+   what to look at stand at the left, and a legend for the layer on show --
+   the focus map's colour ramp -- stands at the right, where the eye looks
+   for one. The scale bar stays at the foot of the picture, where a scale bar
+   is expected. */
+/* The picture reaches the top of its column: the toolbar's row floats over
+   it rather than taking a strip of its own, which read as a white margin
+   above the picture. */
+.plot-column { position: relative; display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; min-width: 0; }
+/* The slider under the picture: T, across the whole width. */
+.canvas-axes { display: grid; gap: 6px; padding: 8px 14px 10px; border-top: 1px solid var(--line); background: var(--screen); }
+.canvas-axes[hidden] { display: none; }
+.canvas-axis { display: grid; grid-template-columns: 18px 24px minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 11px; color: var(--ink-3); }
+/* Play: a small triangle that becomes two bars while it runs. */
+.canvas-axis-play {
+  width: 24px; height: 22px; padding: 0; border: 1px solid var(--line-strong); border-radius: 5px;
+  background: var(--screen); color: var(--accent-deep); cursor: pointer; position: relative;
+}
+.canvas-axis-play::before {
+  content: ""; position: absolute; left: 8px; top: 5px; border-style: solid;
+  border-width: 5px 0 5px 8px; border-color: transparent transparent transparent currentColor;
+}
+.canvas-axis-play[aria-pressed="true"]::before {
+  left: 7px; top: 5px; width: 3px; height: 10px; border: none; border-left: 3px solid currentColor; border-right: 3px solid currentColor; box-sizing: content-box; padding: 0 2px;
+}
+.canvas-axis-play:hover { border-color: var(--accent); color: var(--accent); }
+.canvas-axis[hidden] { display: none; }
+.canvas-axis-name { font-weight: 700; color: var(--ink-2); text-align: center; }
+.canvas-axis input { width: 100%; margin: 0; }
+.canvas-axis-value { min-width: 150px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+.canvas-toolbar {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 3;
+  /* The presses stand at the top of the row, and the row is exactly as
+     tall as they are plus its padding: its lower content edge is their
+     lower edge, which is what Fit measures the picture's room from. */
+  display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px;
+  padding: 11px 12px; background: transparent;
+  /* And as tall as it is with the presses even while they are away, before
+     the microscope is connected: the row's edge does not move when they
+     arrive, so neither does the picture under it. */
+  min-height: calc(var(--control) + 22px); box-sizing: border-box;
+  /* The row never widens the canvas's column: it takes no more than its
+     column, and the chips are what give way when it is short of room.
+     Not clipped itself, so a card can hang below it. */
+  min-width: 0; white-space: nowrap;
+}
+/* The same blue-on-white press as Rerun and Run new points: one look for
+   every press on the page. */
+.canvas-toolbar button.run { align-self: center; }
+.canvas-toolbar-right { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
+.canvas-toolbar-right button[hidden] { display: none; }
+/* The row's presses carry a pictogram before the word. */
+.canvas-toolbar button.run { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; flex: none; }
+.canvas-toolbar button.run[hidden] { display: none; }
+/* A press that is only its pictogram: square, the symbol centred. */
+.canvas-toolbar button.run.icon { width: var(--control); padding: 0; justify-content: center; }
+.canvas-toolbar button.run svg { flex: none; }
+/* The picture's half of the row, in three pieces: the colour-or-grey
+   toggle on its own; then a joined strip, a little raised, holding the
+   acquisition picker with its channels flat in a box beside it, a numbered
+   dot each; and past a short dividing line in that same box, the masks.
+   The cards hang from the strip: the acquisitions' list under its press,
+   every other card at the row's right edge. */
+.canvas-strip { position: relative; display: inline-flex; flex: none; }
+.canvas-strip[hidden] { display: none; }
+/* The acquisition's press stands a little proud of the row, and the box of
+   channels beside it lies a little below it: the press decides what the
+   box holds, so it reads as the thing on top. */
+.canvas-strip .run {
+  background: linear-gradient(var(--screen), var(--surface-3));
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  position: relative; z-index: 1;
+}
+.canvas-strip .run.strip-first { border-radius: 7px 0 0 7px; }
+.canvas-strip .run.strip-first.strip-last { border-radius: 7px; }
+.canvas-strip .run.strip-last { border-radius: 0 7px 7px 0; border-left: none; }
+.canvas-strip .run.switch[aria-pressed="true"] {
+  background: var(--accent-tint); border-color: var(--line-strong); box-shadow: none;
+}
+/* The acquisition's press is a span with the ramp chip inside it, so it
+   dresses itself the way `button.run` does and lays its parts on one centre
+   line: the eye, the chip, the name and the caret, each in a box of the
+   same height, so the word sits neither above nor below the glyphs. */
+.acquisition-press {
+  display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box;
+  font: inherit; font-size: 13px; font-weight: 600; line-height: 1;
+  color: var(--accent-deep); border: 1px solid var(--line-strong);
+  height: var(--control); padding: 0 10px 0 8px; cursor: pointer; user-select: none;
+}
+.acquisition-press:hover { border-color: var(--accent); color: var(--accent); }
+/* The word at the head of a bar, ACQUISITIONS or MASKS, in the page's ink with a
+   hairline after it: the two bars in the row are two kinds of thing. */
+.bar-word {
+  display: inline-flex; align-items: center; height: 16px; flex: none;
+  padding-right: 7px; margin-right: 1px; border-right: 1px solid var(--line-strong);
+  font: 700 9.5px var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink);
+}
+/* In the press the eye wears the press's own ink, as it did while it was a
+   drawing there, and no padding of its own: the press already spaces it. */
+.acquisition-press > .acquisition-eye { color: inherit; padding: 0; }
+.acquisition-press > .acquisition-eye svg { display: block; }
+/* The name stands in a box of the chip's height, and the box is centred
+   in the row rather than the word: a lowercase word has no ascenders to
+   speak of, so its letters sit in the lower half of the em box, and centring
+   the em box put the word two pixels low beside the glyphs. The bottom
+   padding lifts the letters by half its own height. */
+.acquisition-press > #acquisition-name {
+  display: inline-flex; align-items: center; height: 18px; padding-bottom: 4px;
+}
+/* The ramp chip: the lookup-table bar a microscopist knows, in a small
+   bordered box. Pressed means grey, and the glyph says which: a rainbow
+   ramp in colour, a black-to-white ramp in grey, each with a hairline so
+   the light end still has an edge. */
+.ramp-chip {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 22px; height: 18px; padding: 0; box-sizing: border-box;
+  border: 1px solid var(--line-strong); border-radius: 4px; background: var(--screen);
+  cursor: pointer;
+}
+.ramp-chip:hover { border-color: var(--accent); }
+.ramp-chip svg { display: block; }
+.ramp-chip .ramp { stroke: rgba(15, 23, 42, 0.25); stroke-width: 0.6; }
+.ramp-chip .ramp.colours { fill: url(#ramp-colours); }
+.ramp-chip .ramp.greys { fill: url(#ramp-greys); }
+.ramp-chip[aria-pressed="true"] .ramp.colours { display: none; }
+.ramp-chip:not([aria-pressed="true"]) .ramp.greys { display: none; }
+/* The channels' box: flat, bordered on the top, right and bottom, joined
+   onto the acquisition's press, so the strip reads as one piece and the box
+   says which channels belong to the acquisition named at its left. */
+.canvas-channels {
+  display: flex; align-items: center; gap: 2px; min-width: 0;
+  height: var(--control); padding: 0 7px; box-sizing: border-box;
+  border: 1px solid var(--line-strong); border-left: none; border-radius: 0 7px 7px 0;
+  background: var(--screen);
+  box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.10);
+}
+.canvas-channels[hidden] { display: none; }
+.canvas-chips { display: flex; align-items: center; gap: 2px; min-width: 0; }
+/* A chip is a numbered dot in the channel's colour and, beside it, the
+   small triangle that opens its box. The dot is pressed to show or hide the
+   channel; the triangle is its own press with its own hover, so the two are
+   not confused. The chosen chip sits on the accent tint, both parts. */
+.chip {
+  position: relative; display: inline-flex; align-items: center; gap: 1px;
+  height: 24px; padding: 0 2px; border-radius: 5px;
+}
+.chip[hidden] { display: none; }
+.chip.chosen { background: var(--accent-tint); }
+.chip-more {
+  width: 10px; height: 18px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; border-radius: 3px; color: var(--ink-3); cursor: pointer;
+}
+.chip-more:hover { background: var(--surface-3); color: var(--ink); }
+.chip-more svg { display: block; }
+.chip-dot {
+  position: relative; width: 18px; height: 18px; border-radius: 50%; padding: 0; cursor: pointer;
+  border: 1px solid rgba(15, 23, 42, 0.18); box-shadow: inset 0 0 0 1px var(--screen);
+  font: 600 9.5px system-ui, sans-serif; color: #fff; text-shadow: 0 0 2px rgba(0, 0, 0, 0.7);
+  overflow: visible; transition: transform 0.12s;
+}
+.chip-dot:hover { transform: scale(1.12); }
+/* The grey chip's dot is a glyph, not a press: it neither grows nor invites. */
+.grey-dot { cursor: default; }
+.grey-dot:hover { transform: none; }
+/* Hidden: the dot fades and a line crosses it. Only the dot fades, not the
+   chip: a faded chip would become a layer of its own and trap its card
+   beneath the picture. */
+.chip.off .chip-dot { opacity: 0.45; }
+.chip.off .chip-dot::after {
+  content: ""; position: absolute; left: -4px; right: -4px; top: 50%; height: 1.5px;
+  background: var(--ink); transform: rotate(-45deg);
+}
+/* The masks' bar: a flat box the shape of the channels' box, rounded at
+   both ends, at the right end of the row, headed MASKS. One cell per mask
+   layer, in the layer's own dress; hidden, the cell fades and a line
+   crosses it, the way a hidden channel's dot is crossed. */
+.canvas-masks {
+  position: relative; display: flex; align-items: center; gap: 4px; flex: none;
+  height: var(--control); padding: 0 7px; box-sizing: border-box;
+  border: 1px solid var(--line-strong); border-radius: 7px;
+  /* Raised like the acquisitions' and the viewer's press: the three heads
+     of the row are three things of one kind. */
+  background: linear-gradient(var(--screen), var(--surface-3));
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+.canvas-masks[hidden] { display: none; }
+.mask-cells { display: flex; align-items: center; gap: 2px; min-width: 0; }
+/* The grey channel's chip. */
+.canvas-chips[hidden] { display: none; }
+.grey-dot { background: #6b7280; color: #fff; font: 600 10px system-ui, sans-serif; text-shadow: 0 0 2px rgba(0, 0, 0, 0.7); }
+/* A channel's box under the row -- the same box for a colour channel and
+   for the grey one: a head, a histogram, the axis's ends with Auto and Log
+   between them, then min, max and opacity, each a slider and a box. */
+.grey-pop, .channel-pop { right: 0; width: 320px; padding: 10px 12px 12px; display: grid; gap: 6px; color: var(--ink-2); }
+.canvas-box-head { display: flex; align-items: center; gap: 8px; padding-bottom: 4px; border-bottom: 1px solid var(--line); margin-bottom: 2px; min-height: 24px; user-select: none; }
+.canvas-box-title { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.canvas-box-name { font-size: 12.5px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.canvas-box-eye {
+  width: 24px; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; border-radius: 5px; color: var(--ink-2); cursor: pointer;
+}
+.canvas-box-eye:hover { background: var(--surface-3); color: var(--ink); }
+.canvas-box-eye .canvas-box-eye-slash { display: none; }
+.canvas-box-eye[aria-pressed="false"] { color: var(--ink-3); }
+.canvas-box-eye[aria-pressed="false"] .canvas-box-eye-slash { display: block; }
+/* The swatch is the channel's colour; the browser's own picker lies over
+   it, invisible, so a press on the swatch opens it. */
+.canvas-box-swatch {
+  position: relative; overflow: hidden; width: 16px; height: 16px; border-radius: 4px; flex: none;
+  border: 1px solid rgba(15, 23, 42, 0.25); box-shadow: inset 0 0 0 1px var(--screen); cursor: pointer;
+}
+.canvas-box-swatch input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.canvas-box-plot { display: block; width: 100%; height: 72px; color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--line); border-radius: 3px; touch-action: none; user-select: none; }
+.canvas-box-axis { display: grid; grid-template-columns: 54px 1fr 54px; align-items: center; gap: 6px; padding: 4px 0 6px; }
+.canvas-box-buttons { display: flex; gap: 4px; justify-content: center; }
+.canvas-box-button { width: 54px; height: 24px; padding: 0; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--surface-3); color: var(--ink); font: 600 11px system-ui, sans-serif; cursor: pointer; }
+.canvas-box-button[aria-pressed="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+.canvas-box-button:disabled { opacity: 0.5; cursor: default; }
+.canvas-box-row { display: grid; grid-template-columns: 52px 1fr 54px; gap: 6px; align-items: center; font-size: 10.5px; color: var(--ink-3); }
+.canvas-box-value {
+  width: 54px; height: 24px; box-sizing: border-box; padding: 1px 4px; text-align: right;
+  font: 500 11px system-ui, sans-serif; font-variant-numeric: tabular-nums; color: var(--ink);
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 3px;
+}
+.canvas-box-value:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* A card under a press in the row: the masks' dress, the acquisitions. */
+.canvas-card {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 6;
+  display: grid; gap: 10px; padding: 11px 12px;
+  background: var(--screen); border: 1px solid var(--line-strong); border-radius: 9px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+}
+.canvas-card[hidden] { display: none; }
+/* Wide enough for the colour row: the rainbow, six swatches and the
+   picker, at 18 px and 6 px apart, beside their label. Narrower, the row
+   overflowed and pushed the opacity's readout past the card's edge. */
+.mask-pop { width: 280px; gap: 9px; padding: 9px 12px 12px; }
+.mask-pop-head { display: flex; align-items: center; gap: 8px; padding-bottom: 3px; border-bottom: 1px solid var(--line); margin-bottom: 1px; }
+.mask-pop-name { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+/* How the layer was made and how many objects it holds, in quiet ink at
+   the end of the head. */
+.mask-pop-how { margin-left: auto; font-size: 11px; color: var(--ink-3); white-space: nowrap; }
+.mask-eye {
+  width: 24px; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; border-radius: 5px; color: var(--ink-2); cursor: pointer;
+}
+.mask-eye:hover { background: var(--surface-3); color: var(--ink); }
+.mask-eye .mask-eye-slash { display: none; }
+.mask-eye[aria-pressed="false"] { color: var(--ink-3); }
+.mask-eye[aria-pressed="false"] .mask-eye-slash { display: block; }
+.mask-pop-row { display: grid; grid-template-columns: 58px 1fr; align-items: center; gap: 8px; }
+.mask-opacity-row { display: grid; grid-template-columns: 1fr 38px; align-items: center; gap: 6px; }
+.mask-opacity-value { font-size: 11px; color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
+.mask-pop-label {
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.mask-colours { display: flex; gap: 6px; }
+.mask-look { display: inline-flex; justify-self: start; }
+#mask-opacity { width: 100%; margin: 0; }
+.acquisition-pick { position: relative; }
+.acquisition-pick[hidden] { display: none; }
+.acquisition-menu { left: 0; right: auto; min-width: 230px; gap: 2px; padding: 6px; }
+.acquisition-eye {
+  display: inline-flex; padding: 2px; border: none; background: none; cursor: pointer;
+  color: var(--ink-2); border-radius: 4px;
+}
+.acquisition-eye[aria-pressed="false"] { opacity: 0.4; }
+/* A hidden acquisition's eye is struck through, as the layer and mask eyes are. */
+.acquisition-eye .acquisition-eye-slash { display: none; }
+.acquisition-eye[aria-pressed="false"] .acquisition-eye-slash { display: block; }
+/* On is tinted, off is outlined: the same look as every other on-or-off
+   press on the page, so the state can be read without reading the label. */
+.canvas-toolbar button.switch[aria-pressed="true"] {
+  background: var(--accent-tint); color: var(--accent-deep); border-color: var(--accent);
+}
+/* The legend stands at the foot of the picture on the left, on a plate so
+   its values read on every hue, clear of the scale bar at the right. Two
+   lines: the colours, and under them the two values at the ends of the bar
+   with what the colours mean between them. */
+.canvas-legend {
+  position: absolute; left: 12px; bottom: 30px; z-index: 3;
+  display: flex; flex-direction: column; align-items: stretch;
+  gap: 4px; width: 300px; padding: 6px 8px; color: var(--ink-2);
+  background: color-mix(in srgb, var(--screen) 88%, transparent);
+  border: 1px solid var(--line); border-radius: 6px;
+}
+.canvas-legend[hidden] { display: none; }
+.canvas-legend-ramp { display: block; height: 12px; border-radius: 2px; border: 1px solid var(--line-strong); }
+.canvas-legend-ends {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  font-family: ui-monospace, Consolas, monospace; font-size: 13px; font-weight: 600; line-height: 1.2;
+}
+.canvas-legend-ends > span { white-space: nowrap; }
+.canvas-legend-title {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 13px; font-weight: 600; color: var(--ink-3);
+}
+/* Target acquisition's own look: the rules for what only its steps put on
+   the page. The frame's look is `framework/window/style.css`. */
+
+/* A button that undoes something the rest of the run rests on. Built like
+   `button.run`, and red where that one is blue: the colour is enough to say
+   which control this is, and a filled red slab said it far louder than one
+   button among several needs to. */
+button.danger {
+  font: inherit; font-size: 13px; font-weight: 600;
+  color: var(--bad); background: var(--screen);
+  border: 1px solid var(--line-strong); border-radius: 7px;
+  height: var(--control); padding: 0 14px; cursor: pointer;
+}
+button.danger:hover:enabled { border-color: var(--bad); }
+button.danger:disabled { opacity: 0.4; cursor: default; }
+
+.tile-pick { display: flex; justify-content: center; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; }
+/* One flex line under the image: mask presses left once there are
+   masks, the pager and the grey press at the right from the start, so
+   the pager does not move when the presses arrive. The row itself spaces
+   them, so nothing collides however narrow the channel gets. */
+.tile-host { position: relative; }
+.tile-line {
+  height: 24px; margin-top: 8px;
+  display: flex; align-items: center; gap: 8px;
+}
+.tile-line .tile-pick { margin-left: auto; }
+/* What the last test found, on the control line beside the picker. */
+/* One chip family on the image's control line: every press the same
+   height and corner, however it is built. */
+.tile-host .tile-pick .ghost.tiny,
+.image-toggle .ghost.tiny,
+.mask-toggle .ghost.tiny { border-radius: 6px; height: 28px; font-size: 12px; padding: 0 10px; }
+.mask-toggle { display: flex; gap: 2px; align-items: center; }
+.mask-toggle[hidden] { display: none; }
+/* The slider's name, in the quiet ink a label wears, a little clear of
+   the presses so it reads with the slider and not as a fourth press. */
+.mask-toggle .mask-alpha-word {
+  margin-left: 6px; font-size: 11px; color: var(--ink-3); white-space: nowrap;
+}
+/* The slider in the house dress too: a slim line and a small round
+   thumb, not the browser's chunky default -- the last raw widget on an
+   otherwise finished line. */
+.mask-toggle .mask-alpha {
+  -webkit-appearance: none; appearance: none;
+  width: 56px; height: 3px; margin-left: 4px; border-radius: 2px;
+  background: var(--line-strong); cursor: pointer;
+}
+.mask-toggle .mask-alpha::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--accent, #0284c7); border: none;
+}
+.image-toggle .ghost.tiny[aria-pressed="true"],
+.mask-toggle .ghost.tiny[aria-pressed="true"] {
+  background: var(--surface-2); border-color: var(--line-strong); color: var(--ink);
+}
+/* the pager sits at the far end of the heading it belongs to */
+.side-head .tile-pick { margin-left: auto; letter-spacing: normal; text-transform: none; }
+.tile-pick #tile-label { min-width: 62px; text-align: center; color: var(--ink-2); }
+
+#tile-canvas { cursor: default; }
+
+/* The focus controls, stacked down the channel beside the canvas. There is no
+   map here any more — the map is the canvas — so this is only what is said
+   about it: how the points are made, which ones there are, and the sweep
+   behind whichever one is picked.
+
+   The list is the part that grows, so it is the part that scrolls: sixteen
+   points must not push the trace off the bottom of the column, because the
+   trace is what a point is picked in order to look at. */
+#focus-controls { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+#focus-controls[hidden] { display: none; }
+/* The focus step is a column of boxes, like the two steps before it: the
+   channel reads the same whichever step is standing in it, and a panel that
+   ruled its sections off edge to edge instead read as another kind of screen
+   inside the same one. */
+#focus-controls {
+  display: flex; flex-direction: column; gap: var(--box-gap);
+  /* the top is the space between this column and the box above it, which is
+     the same space as between any two boxes */
+  padding: var(--box-gap) 14px 14px; min-height: 0;
+}
+#focus-controls[hidden] { display: none; }
+/* The list of points is the one part that grows, so it takes what is left and
+   scrolls inside its own box rather than pushing the trace off the bottom. */
+/* Three rows deep, bled to the edges of the box that holds it: a list as long
+   as the map would push the picture it belongs to off the screen, and what is
+   under the list — the plot and the three presses about one point — is what
+   the list is for. */
+.side-group-body > .point-list {
+  /* three rows on screen; the rest scroll under them */
+  max-height: 88px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+/* The target list is longer: five rows on screen. An operator checks the
+   acquired tiles against each other, and three at a time hid the ones a
+   comparison was about. */
+.side-group-body > #target-list { max-height: 147px; }
+
+/* The focus box on one grid. Three rows of controls under a word apiece,
+   and every row breaks on the same three columns: the two count-and-press
+   pairs with Clear all beside them, and the three presses that act on the
+   map under them, so a press in either row begins where the one above it
+   does. The hand's two tools share the first column between them, so their
+   right edge is the right edge of the pair below. */
+.fp-box > .side-sub { margin: 0; }
+/* A word that starts the next part stands clear of the part before it. */
+.fp-box > .side-sub:not(:first-child) { margin-top: 12px; }
+.fp-tools { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.fp-tools > div { display: flex; gap: 6px; }
+.fp-tools .sf-tool { flex: 1; height: var(--control); }
+.fp-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.fp-row[hidden] { display: none; }
+.fp-row .sf-flat { height: var(--control); padding: 0 6px; }
+/* Each count belongs to its press, and the pair says so by being one
+   control: joined edges, no air inside. The count is two digits at most,
+   so its box keeps to that and the press takes the rest. */
+.fp-lay { display: grid; grid-template-columns: 42px minmax(0, 1fr); height: var(--control); }
+.fp-lay input {
+  /* read from the left, like every other number in the channel */
+  width: 100%; height: 100%; text-align: left; padding: 0 6px;
+  font: inherit; font-size: 13px; font-family: var(--mono); color: var(--ink);
+  background: var(--surface-2); border: 1px solid var(--line-strong);
+  border-right: none; border-radius: 6px 0 0 6px;
+}
+.fp-lay input:focus { outline: none; }
+/* No stepper in a box this narrow: WebKit on macOS always draws one, and it
+   covers the second digit. The arrow keys still step the count. */
+.fp-lay input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.fp-lay .sf-flat { height: 100%; border-radius: 0 6px 6px 0; }
+/* The step's own press shares Rerun's row: one of the two is always put
+   away, and a `display` of its own beats the `hidden` attribute, so both
+   are put away explicitly. */
+.focus-action { display: flex; align-items: stretch; }
+.focus-action[hidden] { display: none; }
+.focus-action button.run { width: 100%; padding: 0 6px; white-space: nowrap; }
+
+/* The row of presses under the plot: two about the point on show, and
+   Reset all about the whole map, on the three columns the box above keeps. */
+.ft-acts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.ft-acts .sf-flat { height: var(--control); padding: 0 8px; }
+
+.point-list { overflow-y: auto; min-height: 0; flex: 1; }
+/* The list keeps the box's own column: a row's highlight starts where the
+   heading above it starts and ends where the plot below it ends, so the three
+   read as one stack rather than as a band bled wider than either. */
+/* The anchors are a fixed set of four, not a list that grows, so all four are
+   on screen at once: an operator working through them wants to see which are
+   left, and a scroll bar hides exactly that.
+ *
+ * Written to beat three rules at once, which is why it is this specific. The
+ * cap comes from `.side-group-body > .point-list`, and `flex: 1` and the
+ * scrolling come from `.point-list` below it — a plain `.anchor-list` lost to
+ * the first on specificity and to the others on order. */
+.side-group-body > .anchor-list {
+  max-height: none; overflow: visible; flex: none; min-height: 0;
+}
+.point-row {
+  display: flex; align-items: center; width: 100%;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono); font-size: 11.5px; color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+/* Except the last, whose rule would land on the edge of the box it is in and
+   read as one thicker line rather than as two. A rule between rows separates
+   them; there is nothing below the last one to separate it from. */
+.point-row:last-child { border-bottom: none; }
+/* The row picks the point; the cross at its end throws it away. */
+.point-pick {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; border: none; background: none; font: inherit;
+  color: inherit; text-align: left; cursor: pointer;
+}
+.point-drop { flex: none; margin-right: 6px; }
+/* The hand hovering a row previews the pick, in the pick's own tint. */
+.point-row:hover { background: var(--accent-tint); }
+/* The anchor points, and the press that ties each to where the stage is. */
+.anchor-snap { flex: none; margin-left: auto; }
+
+/* The carrier step's buttons in the page's own type, at the size the buttons
+   on the steps either side of it use. `.sf-flat` is monospaced at 11px, which
+   suits a row of drawing tools labelled with glyphs and made this step read as
+   a different piece of software from Connect and Define scan area — where the
+   buttons an operator actually presses are 13px sans. */
+/* How many, and the press that lays them: one sentence, so one row. The box
+   is as wide as a two-digit number needs and the button takes the rest —
+   giving them a column each left the button short for no reason, since only
+   one of the two has words in it. */
+/* How many, and the press that lays them: one sentence, so one row — laid on
+   the same columns as the sizes above it, so the count stands under the width
+   box rather than at a width of its own. The button takes what is left, which
+   is the second box and the lane the tie buttons sit in. */
+.anchor-lay {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)) 30px;
+  gap: 4px 6px; align-items: center; width: 100%;
+}
+
+.anchor-add { grid-column: 2 / -1; justify-content: center; white-space: nowrap; }
+/* The two presses take the whole row between them: the 30px stub column is
+   the tie's, and a row without a tie leaves it to Robust. */
+.anchor-lay .anchor-fast { grid-column: 1; }
+.anchor-lay .anchor-robust { grid-column: 2 / -1; }
+
+.carrier-card .sf-flat {
+  /* Named, not inherited: the alignment rows are monospaced so their numbers
+     line up, and a button inheriting from its row came out monospaced with
+     them. */
+  font-family: var(--sans); font-size: 13px; letter-spacing: normal;
+}
+/* Waiting to be driven to, or done. The colour is the point's state rather
+   than the button's mood, which is why it stays on after the press: an
+   operator working through four points wants to see how many are left without
+   reading a word in each row. */
+.anchor-snap.waiting {
+  color: var(--mark-anchor-waiting); border-color: var(--mark-anchor-waiting);
+}
+.anchor-snap.waiting:hover:enabled {
+  color: var(--mark-anchor-waiting); border-color: var(--mark-anchor-waiting);
+}
+.anchor-snap.done { color: var(--good); border-color: var(--good); }
+.anchor-snap.done:hover:enabled {
+  color: var(--mark-anchor-lit); border-color: var(--mark-anchor-lit);
+}
+
+/* The alignment rows are a table, not a sentence: four rows saying the same
+   four things about four points, so the things line up. `left` and `bottom`
+   are different widths and a flex row started every coordinate in a different
+   place, which reads as four unrelated lines rather than one set.
+ *
+ * The button is a column of its own and a fixed width, so "Snap again" and
+ * "Snap to stage position" leave the same edge — a row whose button grows and
+ * shrinks as it is pressed is a row that moves under the hand. */
+.anchor-list .point-pick {
+  display: grid; align-items: center;
+  /* The name, then whatever is left, then the button — which keeps its place
+     however the row's middle changes, because a button that slides about as it
+     is used is a button that punishes using it. */
+  /* The same columns the row above it uses, so the press that snaps a point
+     stands directly under the press that lays them: the name takes the first
+     column and the button the rest, which is where Reset is. A column list of
+     its own put the two a few pixels apart, which reads as a mistake. */
+  grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)) 30px;
+  gap: 4px 6px;
+  padding-left: 0; padding-right: 0;
+}
+.anchor-list .point-pick .z { margin-left: 0; font-weight: 400; }
+/* The point's name starts where the numbers in the boxes above it start. The
+   row and the boxes are on the same column, but an input's text sits a border
+   and a padding in from its own edge, so the name takes that same inset —
+   given here rather than as row padding, which would carry the Snap button
+   off the column its box keeps. In the same ink as those numbers as well: it
+   names the point the row is about, where an index counts it. */
+.anchor-list .point-pick .idx { padding-left: 8px; color: var(--ink); }
+.anchor-list .anchor-snap {
+  margin-left: 0; grid-column: 2 / -1; white-space: nowrap; padding: 0 12px;
+}
+.anchor-list .point-pick .z { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Moved since it was measured: the row greys, because what was read for it no
+   longer describes it — but it is picked like any other, because picking is
+   how the map is told which point to mark. */
+.point-row.stale { color: var(--ink-3); }
+.point-row[aria-current="true"] { background: var(--accent-tint); color: var(--accent-deep); }
+.point-row .idx { color: var(--ink-3); min-width: 16px; }
+.point-row[aria-current="true"] .idx { color: var(--accent-deep); }
+/* One mark for every way a height is worth a second look, and it carries what
+   it means: the row has no room to say any of this, so the sign stands where
+   the reading it is about begins and the words are on hovering it. At the end
+   of the position instead, it moved with the length of the coordinates; here
+   the marks make a column of their own, which is what makes a list of them
+   readable at a glance. */
+/* A height moved by hand, in its own yellow: the point is not in trouble, it
+   is the operator's answer rather than the instrument's. It leads the marks,
+   because it is the older fact — the reading was moved, and then the rule had
+   something to say about where it ended up. */
+.point-row .warn {
+  margin-left: auto; color: var(--warn-ink); font-size: 12px; cursor: help;
+}
+/* Close against the reading it is about — the row's own spacing and no more,
+   so the mark reads as part of that number rather than as a column of its own
+   standing off in the middle of the row. The reading's box is as wide as the
+   reading for the same reason: given a floor to its width it kept the mark
+   that distance off however short the number was. The figures are monospaced
+   and tabular, so they line up down the list without one. */
+.point-row .warn + .z { margin-left: 0; }
+/* The one reading a row carries. It used to be two — the height, and how far
+   off the fitted surface it sat — and the second was a number an operator
+   read past to get to the first. Where it matters at all it is the worst
+   point on the map, and that is now one of the things the mark beside it
+   says. */
+.point-row .z { margin-left: auto; font-weight: 600; text-align: right; }
+.point-row .z.pending { color: var(--ink-3); font-weight: 400; }
+.point-list .none { padding: 12px; font-size: 12.5px; color: var(--ink-3); font-family: var(--sans); }
+/* Stacked, now that this sits in a column: the image the sweep picks out on
+   top, the sweep beneath it. The image first because it is the answer — the
+   curve is the working — and the curve is given a modest fixed height, since
+   its shape is what is being read and no amount of extra height adds to that. */
+.trace-host {
+  position: relative; min-height: 0; display: grid;
+  /* the slice above, the plot at full width below it: side by side they
+     fought over one narrow column and the plot lost its legend */
+  grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto 160px; gap: 12px 0;
+}
+/* The slice and the side view: two squares of the same size, half the row
+   each. The base zframe caps itself at 176px for the box it grew up in;
+   here the row is the measure and the cap comes off. */
+/* Every row of the box on the same margins: the pictures, their titles,
+   the plot's heading and the plot itself -- the host bleeds to the card's
+   edges for the plot's sake, and each row steps back in evenly. */
+.trace-host > .side-sub { padding-left: 14px; }
+.trace-host .trace-plot { margin: 0 14px 0 0; }
+/* `display: grid` beats the `hidden` attribute's own display: none, so a
+   backend with no slice pictures showed two black voids where the box
+   thought it was hidden. Said explicitly. */
+.trace-host .zpreview[hidden] { display: none; }
+.trace-host .zpreview {
+  padding: 0 14px; display: grid;
+  /* two equal squares splitting the row, titles sitting exactly over them */
+  /* two squares with the cut slider standing between them */
+  grid-template-columns: minmax(0, 172px) auto minmax(0, 172px); gap: 4px 6px;
+  align-items: start; justify-content: space-between;
+}
+.trace-host .zpreview .side-sub { margin: 0; }
+.trace-host .zframe { width: 100%; max-width: none; grid-row: 2; grid-column: 1; }
+.trace-host .zpreview .zx-title { grid-column: 3; }
+.trace-host .zpreview .zcut-title { grid-column: 2; justify-self: center; }
+/* The cut is the operator's own control, so it wears the page's accent --
+   red stays the height's colour, and a red cut read as a second height. */
+.trace-host .zcut {
+  grid-row: 2; grid-column: 2; align-self: stretch; justify-self: center;
+  writing-mode: vertical-lr;
+  -webkit-appearance: none; appearance: none;
+  /* The thumb's travel is inset by its half-height; overhanging the row by
+     that same half puts the tip exactly on the picture's fraction. */
+  width: 18px; margin: -8px 0; background: transparent;
+}
+.trace-host .zcut::-webkit-slider-runnable-track {
+  /* the input overhangs the row so the thumb's travel maps true; the paint
+     stays inside it, so the visible bar spans exactly the pictures */
+  width: 12px;
+  background: linear-gradient(to bottom,
+    transparent 8px, var(--line-strong) 8px,
+    var(--line-strong) calc(100% - 8px), transparent calc(100% - 8px));
+}
+/* The thumb is a triangle pointing at the picture whose row it selects. */
+.trace-host .zcut::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 0; height: 0; background: transparent; border-radius: 0;
+  border-top: 8px solid transparent;
+  border-bottom: 8px solid transparent;
+  border-right: 12px solid var(--ink);
+  margin-left: -3.5px;
+}
+.trace-host .zortho { grid-row: 2; grid-column: 3; }
+/* The green cut is dragged left and right, and the pointer says so. */
+.trace-host .zortho { min-width: 0; }
+.trace-host .zortho canvas {
+  width: 100%; aspect-ratio: 1 / 1; height: auto; display: block;
+  border-radius: 6px; background: #05090e;
+  cursor: ns-resize; touch-action: none;
+}
+/* Flush with the box that holds it, which brings its own padding. */
+/* Wide as the box, so the plot's frame lands on the column the heading and
+   the rows above it keep — but not pulled down over the box's bottom padding
+   as well: with the legend a pixel off the edge the box's rounded corners cut
+   past it and the whole card read as clipped short. */
+.side-group-body .trace-host { margin: 8px -14px -4px; }
+/* Every canvas here is measured from its parent, so each one needs a parent
+   that is its own box and nothing else's. */
+.trace-plot { position: relative; min-height: 0; }
+#trace-canvas { display: block; width: 100%; height: 100%; cursor: ew-resize; touch-action: none; }
+/* The image at the height that was chosen. No padding of its own: the box it
+   sits in brings that, and a picture inset inside an inset read as a frame
+   round a frame. */
+.zpreview { display: flex; justify-content: center; min-height: 0; }
+/* The readings sit on the image, so they are placed against the image's own box
+   rather than the column's — a caption wider than what it captions reads as a
+   band across the panel. */
+.zframe { position: relative; width: 100%; max-width: 176px; }
+.zpreview canvas {
+  width: 100%; height: auto; aspect-ratio: 1 / 1;
+  border-radius: 6px; background: #05090e; display: block;
+}
+.trace-empty {
+  position: absolute; inset: 0; display: grid; place-content: center; text-align: center;
+  padding: 16px; font-size: 12.5px; color: var(--ink-3); line-height: 1.45;
+  background: var(--surface-2); z-index: 2;
+}
+.trace-empty.hidden { display: none; }
+
+/* ---- the detection channel ----------------------------------------------
+   The same shape as focus: the step happens on the canvas — the cells it
+   finds land there — and the channel holds the settings, with the one
+   position they are tried on beneath them. */
+/* The last three steps' columns wear the same gutter as the focus step's:
+   the channel reads the same whichever step is standing in it, and boxes
+   that ran edge to edge read as another kind of screen inside the same one. */
+.detect-side {
+  display: flex; flex-direction: column; flex: 1; min-height: 0;
+  gap: var(--box-gap); padding: var(--box-gap) 14px 14px;
+}
+
+/* the params read as label — value pairs down the column */
+#detect-readout:empty { display: none; }
+/* The gate readout keeps its line even when it has nothing to say:
+   hiding it moved the plot the moment the first sentence landed, and
+   every press after that missed by the jump. */
+#gate-readout { min-height: 18px; }
+/* A grey section header inside a card: the house heading without the
+   box it usually crowns. */
+.side-subhead {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--ink-3); padding: 10px 0 0;
+}
+
+.detect-presses { display: flex; align-items: center; gap: 8px; }
+.detect-presses > .run { flex: 1; height: 34px; align-self: stretch; }
+
+/* Two rows, read downward then across: Diameter and Cell prob. on the
+   left, Border and Binning beside them -- the card stays two rows tall
+   however it widens. */
+.detect-params {
+  display: grid; grid-template-columns: 1fr 1fr;
+  grid-auto-flow: column; grid-template-rows: auto auto; gap: 6px 16px;
+}
+/* The channel on a line of its own, above those two rows. */
+.detect-params:has(> .channel) { grid-template-rows: auto auto auto; }
+.detect-params .param.channel { grid-row: 1; grid-column: 1 / -1; }
+/* Label, input, unit: three settled columns, so every input starts on one
+   line whether or not a unit follows it -- flexed labels left the rows
+   ragged wherever the unit was missing. */
+.detect-params .param { display: grid; grid-template-columns: 1fr 88px 48px; }
+/* A choice takes the room a number and its unit share; the method, the
+   whole row. */
+.detect-params .param select { grid-column: 2 / -1; }
+.detect-params .param.method { grid-template-columns: 1fr; }
+.detect-params .param.method select { grid-column: 1; width: 100%; }
+.detect-params .param label { flex: none; }
+.detect-params button.ghost { margin-top: 2px; }
+/* No side padding: the image starts and ends where the card's rows do,
+   and the control line follows the picture at once. */
+.tile-host { padding: 0; }
+.tile-picture { width: 100%; aspect-ratio: 1 / 1; }
+.tile-host canvas { display: block; width: 100%; height: 100%; border-radius: 6px; }
+/* the channel's closing line: what was found, or what the controls listen to */
+.side-note { padding: 8px 14px 12px; font-size: 12px; color: var(--ink-3); line-height: 1.4; }
+/* Inside a card the box already keeps the margin: a note starts where the
+   rows do, not a second inset in. */
+.side-group-body > .side-note { padding-left: 0; padding-right: 0; }
+/* A run's progress: a bar filling as the fields land, a sweep along it
+   while the run is still going, and one line under it -- what is being done
+   at the left, how far along at the right. */
+.progress-bar {
+  position: relative; height: 6px; border-radius: 3px; overflow: hidden;
+  background: var(--line);
+}
+.progress-fill {
+  height: 100%; width: 0; background: var(--accent); border-radius: 3px;
+  transition: width 0.5s ease;
+}
+.progress-bar.busy::after {
+  content: ""; position: absolute; inset: 0; width: 30%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  animation: progress-sweep 1.4s linear infinite;
+}
+
+.progress-line {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  font-family: var(--mono); font-size: 11.5px; color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.progress-line .progress-count { color: var(--ink-1); flex: none; }
+
+/* ---- the selection channel ----------------------------------------------
+   The gated cells light up on the canvas; the channel holds the scatter they
+   are gated on, and widening the channel is how the plot gets room. */
+.analysis-side {
+  display: flex; flex-direction: column; flex: 1; min-height: 0;
+  gap: var(--box-gap); padding: var(--box-gap) 14px 14px;
+}
+/* Inside a card now, so it carries no divider of its own. */
+.analysis-legend {
+  font-size: 12px; color: var(--ink-2);
+}
+.scatter-wrap { padding: 4px 0 0; }
+/* the tip positions against the plot exactly, so the box it lives in is the
+   canvas's own and nothing wider */
+.scatter-host { position: relative; }
+.scatter-host canvas {
+  /* As wide as the card and a little shorter than square, so the selection
+     box and its press under it have room without a scroll. */
+  display: block; width: 100%; aspect-ratio: 3 / 2;
+  touch-action: none; cursor: crosshair;
+}
+
+/* ---- the gallery channel -------------------------------------------------
+   The acquired low- and high-resolution images, stacked for inspection. */
+.gallery-side {
+  display: flex; flex-direction: column; flex: 1; min-height: 0;
+  gap: var(--box-gap); padding: var(--box-gap) 14px 14px;
+}
+
+/* The overview crop beside the high-resolution target frame, the same
+   physical window at two resolutions; the column can be widened for a
+   closer look. */
+.pair .imgs { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); }
+
+/* The target list: its name in the page's ink. */
+.point-row .name { color: var(--ink-1); }
+
+/* ---- setup panel -------------------------------------------------------
+   What the run is configured with. The cards render into the channel like
+   every other step's controls; this is their margin inside it. */
+.side-pad {
+  padding: 12px 14px 14px;
+  display: flex; flex-direction: column; gap: var(--box-gap);
+}
+
+/* ---- session card ------------------------------------------------------
+   The whole card reads top to bottom: what it is for, what it was opened
+   with, every question the session was asked, what that came to, and the
+   button. Nothing sits in the corner, and the button is last because it acts
+   on all of it. The card is a box like any other in the channel: white, with
+   the frame's padding (`.side-group-body`). */
+.session-form { display: flex; flex-direction: column; gap: 9px; }
+
+.session-foot { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+/* The press, and at the far end of the row the way back out: what opens a
+   session and what closes one are not a pair to be weighed against each other,
+   so they do not stand shoulder to shoulder. */
+.session-buttons {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; justify-content: space-between;
+}
+/* An open session is said the way an instrument says it is on: a lamp, lit,
+   and the word for it. Not a button — there is nothing to press about a state,
+   and a green one sitting where the press was invited a second press. */
+.session-state {
+  display: flex; align-items: center; gap: 8px; height: var(--control);
+  font-size: 13px; font-weight: 600; color: var(--ink);
+}
+.session-state .lamp {
+  width: 9px; height: 9px; border-radius: 50%; background: var(--good);
+  /* the ring is the glow of a lamp behind glass, not a border */
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent);
+}
+
+.check-list { display: flex; flex-direction: column; gap: 1px; }
+/* The whole list arrives with the session, so the rows come in together. What
+   lands one at a time after that is the mark, which is the only part that has
+   an answer to wait for. */
+.check-row {
+  display: grid; grid-template-columns: 18px minmax(150px, auto) 1fr;
+  align-items: baseline; gap: 10px; padding: 5px 0;
+  font-size: 12.5px;
+  animation: check-in 0.22s ease-out;
+}
+.check-mark {
+  color: var(--good); font-weight: 700; justify-self: center;
+  transition: opacity 0.18s ease-out;
+}
+.check-row.pending .check-mark { opacity: 0; }
+.check-row.failed .check-mark { color: var(--bad); }
+.check-row.failed .check-value { color: var(--bad); }
+.check-row.pending .check-name { color: var(--ink-3); }
+.check-name { color: var(--ink-2); }
+.check-value {
+  font-family: var(--mono); font-size: 12px; color: var(--ink-3);
+  text-align: right; font-variant-numeric: tabular-nums;
+}
+
+/* ---- recording an optical configuration --------------------------------
+   One shape in two states. A recorded preset is a line of text; the bar
+   waiting to take the next one holds controls. They differ by what they
+   carry, not by shape — same box, same columns, same edges — so the list
+   does not jog as it grows.
+
+   The fold leads both rows, which is what lets a preset's name and the kind
+   selector begin in the same column. Its width and the gap beside it are
+   named here because three things depend on them: the two row grids, and how
+   far an unfolded detail is indented to sit under the name it explains. */
+.setting-box {
+  --fold-col: 22px;
+  --row-gap: 10px;
+  display: grid; align-items: center;
+  border: 1px solid var(--line-strong); border-radius: 10px;
+  background: var(--surface-2); padding: 0 12px;
+}
+.setting-box.done { border-color: var(--line); }
+/* The bar waiting to take the next preset is not a box. A recorded preset is
+   an object the run holds and is drawn as one; this is the act of taking the
+   next, and an outline around it drew a second object where there is only a
+   field being filled in. Without the frame its controls open on the edge the
+   boxes stand on, so the column still has one left edge. */
+.setting-box.open { border: none; padding: 0; background: transparent; }
+
+.rec-row, .rec-new {
+  display: grid; align-items: center; gap: var(--row-gap);
+  /* the border is the bar's own, so the row inside it is that much shorter */
+  min-height: calc(var(--control) - 2px);
+}
+/* Name and summary share the row's width and give way with an ellipsis, so a
+   narrow channel truncates them instead of pushing the row out of its box. */
+.rec-row { grid-template-columns: var(--fold-col) minmax(0, 1fr); }
+/* The open bar carries no empty fold column. It opens with the name it is
+   there to take, where a recorded row opens with its triangle, so the two
+   begin on the same edge instead of the bar sitting indented behind a column
+   reserved for something it has not got.
+
+   The field takes what the button leaves, so the bar reaches both edges of the
+   box it stands in. It used to be capped at the width a preset name needs, with
+   the slack collecting after the button — which left the button short of the
+   right edge while the field met the left one, and a bar with one end tucked in
+   reads as a bar that was placed carelessly. */
+.rec-new { grid-template-columns: minmax(0, 1fr) max-content; }
+/* A bar with no field to fill in: the button is the whole of it, and stands at
+   the left where the reading would have begun rather than floating out to the
+   right against nothing. Once a reading has been taken it stands at the far
+   end instead, under the row that reports it: the first press starts the box,
+   and the one that replaces a reading acts on what is already there. */
+.rec-new.alone { grid-template-columns: max-content; }
+/* On the same three columns the channel's other boxes use, so the press that
+   replaces a reading begins where every other second-column press does. */
+.rec-new.alone.again { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.rec-new.alone.again button.run { grid-column: 2 / -1; width: 100%; }
+/* The reading and its Update press on one row; the reading gives way first. */
+.rec-beside { display: grid; grid-template-columns: minmax(0, 1fr) max-content; gap: 6px; align-items: start; }
+.rec-beside .rec-new.alone.again { grid-template-columns: max-content; }
+.rec-beside .rec-new.alone.again button.run { grid-column: 1; width: auto; }
+
+.rec-fold, .rec-new input { grid-column: 1; }
+.rec-pick { grid-column: 2; }
+.rec-drop { grid-column: 3; }
+/* The base rule starts a button at the top of its row, which left this one
+   riding above the fields. Stretched instead of centred, so it stands exactly
+   as tall as the name box beside it — taken from the row rather than set to a
+   height of its own that would have to be kept in step by hand. */
+.rec-new button.run {
+  grid-column: 2; justify-self: start; align-self: stretch; padding: 0 14px;
+}
+/* With no field beside it the button *is* the bar, so it takes the first
+   column rather than the second — which is where the field would have begun,
+   and the same edge the recorded row below starts on. Left in column two it
+   sat in an implicit second column and stood a gap in from everything else. */
+.rec-new.alone button.run { grid-column: 1; }
+
+/* The overlap: one number, in a lane the width of the pairs below it, so the
+   box lines up with the ones it governs rather than stretching across a row
+   built for two. It carries no label of its own — the heading above says what
+   it is, and a caption repeating that is a word the eye has to read twice. */
+/* Two headed columns: the figure the tiles are laid at, and the way to take
+   them all away. The headings are grid cells of their own so each sits over
+   the control it names, rather than one label spanning both. */
+.sf-overlap {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px; align-items: center;
+}
+
+/* The record is the button that chooses it: one press says what this step is
+   taken with. It carries no frame of its own — the box around it is the
+   object, and a border inside a border says the same thing twice. */
+.rec-pick {
+  display: grid; grid-template-columns: minmax(80px, 1fr) minmax(0, 1fr);
+  align-items: center; gap: var(--row-gap); min-width: 0;
+  padding: 0; font: inherit; text-align: left;
+  background: none; border: none; cursor: pointer;
+}
+
+.rec-name {
+  font-family: var(--mono); font-size: 12.5px; color: var(--ink); font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rec-state {
+  font-family: var(--mono); font-size: 12px; color: var(--ink-2);
+  text-align: right; font-variant-numeric: tabular-nums;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Nothing named it, so there is no name column to balance against: the dot
+   takes only the room it needs and the reading starts immediately after it. */
+.rec-row.unnamed .rec-pick { grid-template-columns: max-content minmax(0, 1fr); }
+.rec-row.unnamed .rec-state { text-align: left; }
+
+.rec-pick:hover:enabled .rec-name { color: var(--accent-deep); }
+/* Active is the whole box, not a tick inside it: what the step is taken with
+   is a property of the record, and the record is the box. */
+.setting-box.done.active { border-color: var(--accent); background: var(--accent-tint); }
+.setting-box.done.active .rec-name { color: var(--accent-deep); font-weight: 700; }
+/* The controls sit on the bar rather than in boxes of their own. A bordered
+   field inside a bordered box inside a bordered group is three edges saying
+   the same thing, and it made the one thing being filled in the hardest part
+   to see. Without them the open bar is the line of text it is about to
+   become, and it needs no height of its own to hold them. */
+.rec-new input { font-family: var(--mono); }
+.rec-new input::placeholder { color: var(--ink-3); }
+
+/* Square, so turning it to point down at what it opened moves the glyph and
+   not the column. Sized to the column it leads rather than to its own text. */
+.rec-fold {
+  display: grid; place-content: center;
+  width: var(--fold-col); height: var(--fold-col); padding: 0;
+  font: inherit; font-size: 15px; line-height: 1;
+  border: none; background: none; color: var(--ink-3); cursor: pointer;
+  border-radius: 6px; transition: transform 0.15s;
+}
+.rec-fold:hover { color: var(--ink); background: var(--surface-3); }
+.rec-fold.open { transform: rotate(90deg); }
+
+.rec-drop {
+  font: inherit; font-size: 12px; line-height: 1; padding: 2px 5px;
+  border: none; background: none; color: var(--ink-3); cursor: pointer; border-radius: 5px;
+}
+.rec-drop:hover:enabled { color: var(--bad); background: var(--surface-3); }
+.rec-drop:disabled { visibility: hidden; }
+
+/* Indented past the fold to start under the name it belongs to, rather than
+   hanging off the left of the row that opened it. */
+.rec-detail {
+  display: grid; grid-template-columns: 130px 1fr; gap: 3px 12px;
+  margin: 8px 0 2px calc(var(--fold-col) + var(--row-gap));
+  padding-top: 8px; border-top: 1px solid var(--line);
+  font-size: 12.5px;
+}
+.rec-detail dt { color: var(--ink-3); }
+.rec-detail dd {
+  margin: 0; font-family: var(--mono); font-size: 12px; color: var(--ink-2);
+}
+
+/* As long as it needs to be: every reading taken is on screen, and the
+   channel scrolls if the step outgrows it. A list that scrolled inside the
+   slot hid readings behind a bar of its own. */
+.rec-list { display: flex; flex-direction: column; gap: 6px; }
+
+/* A slot puts two boxes in the column — the recording and what it recorded —
+   and they stand apart like every other pair of boxes there. */
+.setting-slot { display: flex; flex-direction: column; gap: var(--box-gap); }
+/* A reduction a tick: its name, and while it computes a quiet word after. */
+.reduce-row { display: flex; align-items: center; gap: 8px; min-height: var(--control); font-size: 12.5px; color: var(--ink-2); }
+.reduce-act { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
+.reduce-note { font-size: 12px; color: var(--ink-3); }
+.reduce-note.warn { color: var(--warn-ink); }
+.focus-switch { display: flex; align-items: center; gap: 8px; min-height: var(--control); font-size: 12.5px; color: var(--ink-2); }
+/* The focussing job is one line under the switch, in the same box: the
+   recording slot's own box and heading are flattened away here. */
+#target-focus-recording { margin-top: 6px; }
+#target-focus-recording[hidden] { display: none; }
+#target-focus-recording .side-group { margin: 0; border: 0; padding: 0; background: none; box-shadow: none; }
+#target-focus-recording .side-group-title { display: none; }
+#target-focus-recording .side-group-body { padding: 0; border: 0; border-radius: 0; background: none; }
+.pair .focus-note { display: block; margin-top: 2px; color: var(--ink-3); font-size: 12px; }
+.pair .focus-note.warn { color: var(--warn-ink); }
+
+.carrier-card { display: flex; flex-direction: column; height: 100%; }
+.carrier-controls {
+  display: flex; flex-direction: column; gap: var(--box-gap); padding: 14px;
+}
+
+.carrier-types { display: flex; gap: 5px; }
+
+/* The one body under the type row. Which of its groups are on screen is what
+   a carrier type decides; display beats the [hidden] attribute's browser rule,
+   so a group the type is not about is put away explicitly. */
+.carrier-designer { display: flex; flex-direction: column; gap: var(--box-gap); }
+.carrier-designer[hidden], .carrier-group[hidden] { display: none; }
+.carrier-type {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 8px 4px 6px; font: inherit; font-size: 10px; font-weight: 500;
+  font-family: var(--mono); letter-spacing: 0.03em;
+  color: var(--ink-3); background: none; cursor: pointer;
+  border: 1.5px solid transparent; border-radius: 9px;
+}
+/* Hover shows the outline the press would leave, in the colour it would leave
+   it: the button answers before it is pressed. The chosen one is not offered,
+   because there is nothing there to press for. */
+.carrier-type:not(.on):hover:enabled { border-color: var(--accent); color: var(--accent); }
+.carrier-type.on {
+  border-color: var(--accent); color: var(--accent-deep);
+  background: var(--accent-tint); font-weight: 700;
+}
+.carrier-type:disabled { opacity: 0.5; cursor: default; }
+
+/* The catalogue and its three buttons stand as their own rows in the box. */
+.carrier-templates { display: flex; flex-direction: column; gap: 6px; }
+
+.carrier-sizes .carrier-group {
+  border: none; background: none; padding: 0; border-radius: 0;
+}
+
+.carrier-group {
+  display: flex; gap: 6px;
+  background: var(--screen); border: 1px solid var(--line);
+  border-radius: 9px; padding: 10px 12px;
+}
+/* A row of numbers with the tie button at the end of it, in one shape
+   wherever it appears. How many numbers is set per row, because a carrier's
+   size is one, two or three of them and all of them have to line up under the
+   same button. */
+.carrier-nums {
+  display: grid;
+  grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)) 30px;
+  gap: 4px 6px; align-items: center; width: 100%;
+}
+.carrier-nums.no-tie { grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr)); }
+/* One line each: a label that wraps takes its box with it and the two halves
+   of a pair stop standing level. */
+.carrier-label {
+  font-size: 9px; font-family: var(--mono); font-weight: 600;
+  letter-spacing: 0.02em; color: var(--ink-3); white-space: nowrap;
+}
+.carrier-num, .carrier-preset {
+  font: inherit; font-size: 12px; font-family: var(--mono); color: var(--ink);
+  background: var(--surface-2); border: 1px solid var(--line-strong);
+  border-radius: 6px; padding: 5px 7px; width: 100%;
+  /* Four digits, the point, and the two decimals these fields carry — the
+     widest number this panel can put in one, which is what decides whether
+     three of them fit across the column rather than the column deciding how
+     much of a number can be seen. */
+  min-width: calc(7ch + 16px);
+}
+.carrier-num:focus, .carrier-preset:focus { outline: none; }
+.carrier-preset { flex: 1; font-family: inherit; }
+.carrier-num:disabled, .carrier-preset:disabled { opacity: 0.55; }
+
+.carrier-link, .carrier-shape, .carrier-reset {
+  display: grid; place-content: center; height: var(--control);
+  font: inherit; font-size: 12px; font-family: var(--mono); color: var(--ink-3);
+  background: var(--surface-2); border: 1px solid var(--line-strong);
+  border-radius: 6px; cursor: pointer;
+}
+.carrier-link { width: 30px; }
+.carrier-shape { width: 30px; }
+
+.carrier-link:hover:enabled, .carrier-shape:hover:enabled, .carrier-reset:hover:enabled {
+  border-color: var(--accent); color: var(--accent);
+}
+.carrier-link svg { display: block; margin: 0 auto; }
+.carrier-link svg path, .carrier-link svg line { transition: transform 0.15s ease, opacity 0.15s ease; }
+.carrier-link svg .tie-left { transform: translateX(-2px); }
+.carrier-link svg .tie-right { transform: translateX(2px); }
+.carrier-link svg .tie-bar { opacity: 0; }
+.carrier-link.on svg .tie-left, .carrier-link.on svg .tie-right { transform: none; }
+.carrier-link.on svg .tie-bar { opacity: 1; }
+.carrier-link.on { border-color: var(--accent); color: var(--accent); background: var(--surface-3); }
+.carrier-shape svg { display: block; }
+.carrier-shape svg .shape-round { display: none; }
+.carrier-shape.round svg .shape-round { display: block; }
+.carrier-shape.round svg .shape-square { display: none; }
+.carrier-link:disabled, .carrier-shape:disabled, .carrier-reset:disabled { opacity: 0.5; cursor: default; }
+
+/* ---- the scan fields channel -------------------------------------------
+   The same column the carrier docks in, laid out the way the design session
+   settled it: the choice of how to say it first, then a group per question,
+   then the shortcuts folded away because they are reference rather than
+   workflow. Colours are this page's own tokens, so the column reads in both
+   surfaces rather than carrying a second palette. */
+.sf-card { display: flex; flex-direction: column; height: 100%; }
+.sf-controls { display: flex; flex-direction: column; gap: var(--box-gap); padding: 16px 14px; }
+
+/* A word over one part of a box. Where a heading names the box, this names a
+   way of filling it in — drawing tilesets by hand or asking for a grid of them
+   — so it is quieter than the heading and sits closer to what it names. */
+.side-sub {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-3); margin-bottom: -4px;
+}
+/* A word that starts a second part of the box stands well clear of the part
+   before it: the gap is what says one thing has ended and another begun, and at
+   the box's own spacing the buttons above looked as though they belonged to the
+   word underneath them. */
+.side-sub:not(:first-child) { margin-top: 12px; }
+/* The tileset box's two sections stand as close as the focus box's do: the
+   body's own gap is most of the air, and the shared margin doubled it. */
+/* Each word stands clear of the part before it, and close to its own. */
+.side-sub.sf-sub:not(:first-child) { margin-top: 8px; }
+/* A heading that also carries a count puts it at the far end of its own line.
+   In the amber the rest of the page warns in, and in the page's own type
+   rather than the heading's small caps: it is a sentence about the list, not
+   a second title for it. */
+.side-sub:has(.tallies) { display: flex; align-items: baseline; }
+.tallies { margin-left: auto; display: flex; gap: 5px; }
+.warn-count {
+  font-family: var(--sans); font-size: 11px; font-weight: 600;
+  letter-spacing: 0; text-transform: none;
+}
+
+.warn-count { color: var(--warn-ink); }
+/* A sentence under a recorded reading, in the warning ink and the
+   reading's own type: what the step has to say about what was read. */
+.rec-warn {
+  color: var(--warn-ink); font-family: var(--mono); font-size: 11.5px; line-height: 1.35;
+  padding: 6px 2px 0;
+}
+.edit-count:empty, .warn-count:empty { display: none; }
+/* Except where the two parts are one subject rather than two ways of answering
+   different ones: the carrier types and the catalogue of them are one question
+   asked twice over — which carrier, then which of that kind — and the bar that
+   records a preset and the presets it has recorded are the act and its answer.
+   Those stand as close as the box's own spacing. */
+/* And side by side, where the two headings are one row rather than one after
+   another: the second is not following the first down the box, it is standing
+   beside it, so the gap that separates parts would only drop it below its own
+   column. */
+.carrier-types + .side-sub,
+.setting-box + .side-sub,
+.sf-overlap > .side-sub { margin-top: 0; }
+/* And closer where the part above ends in a boxed thing of its own rather
+   than in a control: the list of points has a rule under its last row, which
+   already does what the gap is for, so the plot's heading follows it at half
+   the distance. */
+.point-list + .side-sub { margin-top: 6px; }
+
+.sf-tools { display: flex; gap: 6px; }
+/* The worded press at the row's far end, in the same 74px column Add grid
+   keeps below, so the two right-hand presses stand in one line. */
+.sf-tools .sf-clear-all { margin-left: auto; width: 74px; padding: 0 6px; height: auto; }
+.sf-tool {
+  flex: 1; height: 46px; display: grid; place-content: center; padding: 0;
+  border: 1px solid var(--line-strong); border-radius: 8px;
+  background: var(--screen); color: var(--ink-2); cursor: pointer;
+}
+.sf-tool:not(.on):hover:enabled { color: var(--ink); }
+.sf-tool.on { color: var(--accent-deep); border-color: var(--accent); background: var(--accent-tint); }
+.sf-glyph { font-size: 19px; line-height: 24px; }
+.sf-tool.on .sf-glyph { font-weight: 700; }
+/* Drawn rather than typed, so it takes its weight from the stroke instead of
+   the font — and its colour from the button, like every other glyph here. */
+.sf-glyph-drawn {
+  width: 21px; height: 21px; display: block;
+  fill: none; stroke: currentColor; stroke-width: 1.5;
+  stroke-linejoin: round; stroke-linecap: round;
+}
+.sf-tool.on .sf-glyph-drawn { stroke-width: 2; }
+/* Positions are filled marks, not outlines: at this size an outlined square is
+   a grey smudge, where a solid one reads as a position on a plate. Drawn larger
+   than the drawing tools' glyphs because it has a lane to itself rather than a
+   button the width of a thumb. */
+.sf-glyph-grid { width: 28px; height: 28px; fill: currentColor; stroke: none; }
+
+/* The numbers, and beside them the one button that acts on them. */
+.sf-auto {
+  display: grid; grid-template-columns: minmax(0, 1fr) 74px; gap: 8px;
+  align-items: stretch;
+}
+/* The button's lane: a blank label, then the button taking everything under
+   it, so it starts level with the boxes and ends level with them. */
+.sf-lane { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sf-lane .sf-flat {
+  flex: 1; height: auto; padding: 0 6px;
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 4px;
+  white-space: normal; line-height: 1.25;
+}
+.sf-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.sf-num { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.sf-num-label {
+  font-size: 10px; font-family: var(--mono); font-weight: 600;
+  color: var(--ink-3); letter-spacing: 0.04em;
+}
+.sf-num input {
+  font: inherit; font-size: 12px; font-family: var(--mono); color: var(--ink);
+  background: var(--surface-2); border: 1px solid var(--line-strong);
+  border-radius: 6px; padding: 0 8px; height: var(--control); width: 100%;
+}
+.sf-num input:focus { outline: none; }
+
+/* One type for every button on this page. It was monospaced at 11px, which
+   suits a row of drawing tools labelled with glyphs and made every panel that
+   used it read as a different piece of software from the ones either side —
+   the carrier step had already overridden it back, one panel at a time. The
+   size the operator's buttons are is 13px sans, and now they all are. */
+.sf-flat {
+  flex: 1; height: var(--control); padding: 0 8px;
+  font: inherit; font-size: 13px; font-family: var(--sans); font-weight: 600;
+  letter-spacing: normal; white-space: nowrap;
+  /* Blue, like everything else on this page that can be pressed. Grey ink read
+     as a label that happened to have a border round it, which put Load, Save
+     and Reset a shade quieter than the tools beside them for no reason an
+     operator could act on. */
+  color: var(--accent-deep); background: var(--screen);
+  border: 1px solid var(--line-strong); border-radius: 6px; cursor: pointer;
+}
+.sf-flat:hover:enabled { border-color: var(--accent); color: var(--accent-deep); }
+.sf-flat:disabled { opacity: 0.55; cursor: not-allowed; }
+/* The button in a box that does the thing the box is for wears the colour every
+   other doing button wears — the same blue as Record. `Add grid` lays the
+   positions; `Place` lays the focus points. */
+.sf-doing {
+  color: var(--accent-deep); background: var(--screen); border-color: var(--line-strong);
+}
+.sf-doing:hover:enabled {
+  background: var(--screen); border-color: var(--accent); color: var(--accent);
+}
+/* The two rules that used to force this button's text light or dark are gone
+   with the fill they were for. Left behind, they painted white text on the
+   white face and the button vanished. */
+/* Greyed while the step is locked — the plan is fixed once the overview has
+   been scanned, and the controls say so by staying where they are. */
+.sf-tool:disabled, .sf-num input:disabled {
+  opacity: 0.55; cursor: not-allowed;
+}
+
+/* No frame of its own: it stands inside the box whose controls it explains, and
+   an edge in there would have drawn a second box within one. A rule above it
+   says where the controls end and the reference begins. */
+.sf-keys {
+  margin: 4px -14px -12px; padding-top: 2px;
+  border-top: 1px solid var(--line); overflow: hidden;
+}
+.sf-keys[hidden] { display: none; }
+.sf-keys-head {
+  width: 100%; display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+  background: transparent; border: none; cursor: pointer; text-align: left;
+  font: inherit; font-size: 11px; font-family: var(--mono); font-weight: 700;
+  /* quieter than the words above it: this is reference, not a control */
+  color: var(--ink-3); letter-spacing: 0.03em;
+}
+.sf-keys-head > span:first-child { flex: 1; }
+.sf-chev { color: var(--ink-3); font-size: 12px; transition: transform 0.15s; }
+.sf-keys.open .sf-chev { transform: rotate(180deg); }
+.sf-keys-body { padding: 0 14px 12px; display: flex; flex-direction: column; gap: 4px; }
+.sf-keys-body[hidden] { display: none; }
+.sf-key { display: flex; gap: 8px; font-size: 10px; font-family: var(--mono); line-height: 1.5; }
+.sf-key-name { width: 84px; flex: none; color: var(--ink-2); font-weight: 600; }
+.sf-key-what { color: var(--ink-3); }
+
+/* What the plan comes to, at the foot of the column the way the run's own
+   results sit at the foot of a panel. */
+.sf-readout {
+  margin-top: auto; padding: 12px 14px; border-top: 1px solid var(--line);
+  font-size: 12px; font-family: var(--mono); color: var(--ink-2);
+}
+
+.mask-dot {
+  width: 24px; height: 24px; padding: 0; border: none; background: none; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; position: relative;
+  transition: transform 0.12s;
+}
+.mask-dot:hover { transform: scale(1.12); }
+.mask-dot svg { width: 22px; height: 22px; display: block; }
+.chip.off .mask-dot { opacity: 0.45; }
+.chip.off .mask-dot::after {
+  content: ""; position: absolute; left: -2px; right: -2px; top: 50%; height: 1.5px;
+  background: var(--ink); transform: rotate(-45deg);
+}
+.mask-dot:hover { transform: scale(1.1); }
+.chip.off .mask-dot { opacity: 1; }
+.chip.off .mask-dot::after {
+  display: block; left: -3px; right: -3px; height: 2px; background: #000; border-radius: 1px;
+  box-shadow: 0 0 0 1px var(--screen);
+}
+
+.mask-colour {
+  width: 18px; height: 18px; border-radius: 50%; padding: 0; cursor: pointer;
+  border: 1px solid var(--line-strong); box-shadow: inset 0 0 0 1px var(--screen);
+}
+.mask-colour[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--screen), 0 0 0 4px var(--accent); }
+/* The swatch that opens the colour picker: the picker itself lies over it,
+   invisible, so a press on the swatch opens it. */
+.mask-pick { position: relative; overflow: hidden; }
+.mask-pick input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+
+/* Eye, chip, name: the same order and the same columns as the press
+   above, so the menu reads as the press unfolded. */
+.acquisition-line {
+  display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 8px;
+  padding: 4px 6px; border-radius: 6px;
+}
+.acquisition-line.chosen { background: var(--accent-tint); }
+.acquisition-line.off .acquisition-choose, .acquisition-line.off .ramp-chip { color: var(--ink-3); opacity: 0.6; }
+
+.acquisition-choose {
+  font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink);
+  background: none; border: none; padding: 0; cursor: pointer; text-align: left;
+}
+.acquisition-line.chosen .acquisition-choose { color: var(--accent-deep); }
+
+/* The gating channel: a feature per axis, and the gates as rows. A row is
+   pressed to bring its own plot back, so the pair each polygon lives on is
+   one press away rather than a hunt through two dropdowns. */
+/* The two pickers split the row evenly, so its geometry does not
+   change with whichever feature happens to be chosen. */
+.gate-axes { display: flex; gap: 14px; padding: 2px 0 6px; }
+.gate-axes label { flex: 1; font-weight: 700; color: var(--ink-2); }
+.gate-axes select { flex: 1; max-width: none; min-width: 0; }
+.gate-axes label {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+/* The axis pickers and the draw count wear the house form style --
+   the browser's raw widgets sat unstyled in an otherwise finished card. */
+.gate-axes select {
+  font: inherit; font-size: 12.5px; font-weight: 600; max-width: 150px;
+  background: var(--surface-2); color: var(--ink);
+  border: 1px solid var(--line-strong); border-radius: 6px; padding: 4px 7px;
+}
+.gate-list {
+  display: flex; flex-direction: column; gap: 2px; padding-top: 6px;
+  /* three gates on screen; the rest scroll under them, as the focus points do */
+  max-height: 96px; overflow-y: auto;
+}
+/* The whole row is the pill -- label, count and the remove press live
+   inside one border, instead of the x dangling past it. */
+.gate-row {
+  display: flex; align-items: stretch; gap: 2px;
+  border: 1px solid transparent; border-radius: 6px; padding-right: 4px;
+}
+.gate-row .gate-open {
+  flex: 1; display: flex; gap: 10px; align-items: center;
+  font-size: 12.5px; padding: 5px 8px; text-align: left;
+  background: none; border: none; border-radius: 6px;
+  cursor: pointer; color: inherit;
+}
+.gate-row[aria-current="true"] {
+  background: var(--surface-2); border-color: var(--line);
+}
+.gate-row:not([aria-current="true"]):hover { background: var(--surface-2); }
+.gate-row .idx { color: var(--ink-3); font-family: ui-monospace, monospace; }
+.gate-row .gate-n { margin-left: auto; color: var(--ink-3); }
+
+/* Steps 6-8 in the same boxes as the steps before them. The picker sits as
+   its own right-leaning row inside the test card; Clear gates rides the axis
+   row's far end. */
+.side-group-body > .tile-pick { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.gate-axes .ghost.tiny { margin-left: auto; }
+
+/* The random draw: one row under the gate list -- how many, the draw, and
+   the way back to everything the gates let through. */
+.gate-draw { display: flex; align-items: center; gap: 8px; }
+.gate-draw label { flex: 1; font-size: 12.5px; color: var(--ink-2); }
+/* The rows of the target scan area: one control at the right of each word, the
+   same width whatever the control is, so the column reads as one. */
+.gate-draw input[type="range"] { width: 72px; margin: 0; }
+.gate-draw input[type="checkbox"] { width: 72px; margin: 0; height: 16px; }
+.tile-controls { display: flex; flex-direction: column; gap: 8px; }
+.press-line .spacer { flex: 1; }
+.press-line .run { white-space: nowrap; }
+/* A checkbox leads the words it governs; where the lever also has a number,
+   that number stays in the right-hand controls column. */
+.gate-draw.check-first > input[type="checkbox"] { width: auto; height: 14px; margin: 0; }
+.gate-draw.check-first > input[type="number"] { width: 72px; }
+.gate-draw select { width: 72px; min-width: 0; }
+#tiles-notes:empty { display: none; }
+.gate-draw input {
+  font: inherit; font-family: var(--mono); font-size: 12px;
+  background: var(--surface-2); color: var(--ink);
+  border: 1px solid var(--line-strong); border-radius: 6px;
+  padding: 4px 7px; width: 72px;
+}
+.target-main-settings-title {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--ink-3);
+}
+
+/* The step's own press at the top of its channel: the button and its
+   sentence in one quiet row, gone entirely when the renderer left it empty. */
+.side-act { display: flex; align-items: center; gap: 10px; }
+/* The scan summary: a label and its value to a row, the labels one column. */
+.scan-summary {
+  display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; align-items: baseline;
+  font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums;
+}
+.scan-summary .k { color: var(--ink-3); }
+.scan-summary .v { color: var(--ink-1); }
+.side-act:empty { display: none; }
+.side-act .action-hint { font-size: 12px; }
+
+/* Step 10's finish: the run's numbers as a small table, and the burst
+   over them. The burst is drawn on a canvas the height of the box's
+   head, never outside it. */
+.protocol-stats { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 12.5px; color: var(--ink-2); margin: 6px 0 2px; }
+.protocol-stats .v { font-family: var(--mono); color: var(--ink-1); text-align: right; }
+.protocol-box { position: relative; }
+.protocol-burst { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+/* The name a protocol is saved under, joined to its press, as Step 4's
+   count is joined to Per tileset. */
+.protocol-save { display: grid; grid-template-columns: minmax(0, 1fr) auto; height: var(--control); margin-bottom: 8px; }
+.protocol-save input {
+  width: 100%; height: 100%; padding: 0 8px; font: inherit; font-size: 12.5px; color: var(--ink);
+  background: var(--surface-2); border: 1px solid var(--line-strong); border-right: none; border-radius: 6px 0 0 6px;
+}
+.protocol-save input:focus { outline: none; }
+.protocol-save .sf-flat { height: 100%; border-radius: 0 6px 6px 0; padding: 0 12px; }
+/* Why a protocol was not written can be a sentence: it wraps in the box. */
+#protocol-export-note { flex: 1 1 0; min-width: 0; }
+
+@keyframes progress-sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(400%); }
+}
+
+@keyframes check-in { from { opacity: 0; transform: translateY(-2px); } }

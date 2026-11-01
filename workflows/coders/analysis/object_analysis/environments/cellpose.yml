@@ -1,0 +1,28 @@
+# The environment of segment_cellpose: PyTorch and Cellpose.
+# conda-forge's pytorch takes the CUDA build by itself when the computer has
+# an NVIDIA GPU, and the CPU build otherwise, but only among the builds of one
+# version. Left free, conda takes the newest version, whose CUDA builds may
+# all need a newer NVIDIA driver than the computer has (PyTorch 2.14's need
+# CUDA 13): a computer with a GPU then gets the CPU build without a word. So
+# PyTorch is pinned to a version that also has CUDA 12 builds, for Windows and
+# Linux. Not locked yet: the PyTorch build depends on the graphics card.
+# conda-forge only.
+name: ZMART--object_analysis--cellpose
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - pip
+  - pytorch=2.13
+  # torchvision from conda-forge too, built for the PyTorch above. Left to pip,
+  # cellpose brings PyPI's torchvision, which does not work with conda-forge's
+  # PyTorch: Cellpose then fails with "operator torchvision::nms does not exist".
+  - torchvision=0.28
+  - pip:
+      - pyyaml
+      - numpy
+      - tifffile
+      # Pinned to the network the masks are made with, cpsam: 4.2 made
+      # cpsam_v2 the default, and the masks change with the network.
+      - cellpose>=4,<4.2

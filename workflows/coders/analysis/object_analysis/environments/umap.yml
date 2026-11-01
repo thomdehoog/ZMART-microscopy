@@ -1,0 +1,13 @@
+# The environment of reduce_dimensions: scikit-learn and UMAP.
+# Every package comes from the lock file umap.txt, at one version, so it is
+# the same on every computer: conda env create -f umap.yml
+# conda-forge only.
+name: ZMART--object_analysis--umap
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - -r umap.txt

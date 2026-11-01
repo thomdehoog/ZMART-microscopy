@@ -1,0 +1,1008 @@
+/**
+ * The carrier configuration panel.
+ *
+ * Owns one panel and nothing else: it is handed a configuration and a way to
+ * report a new one, and it never reaches for run state or for another widget.
+ *
+ * It draws no picture of its own. The carrier belongs on the canvas beside it,
+ * and a second drawing of the same thing is a second thing to keep right — so
+ * the controls live here and `drawOn` puts the carrier itself on the stage.
+ * Both are in this file because they are one subject: change what a carrier is
+ * and there is a single place that has to follow.
+ *
+ * It redraws itself rather than asking the framework to rebuild the panel. A
+ * rebuild on every keystroke would destroy the field being typed into — the
+ * defect this page has produced twice — so `sync()` writes new values into the
+ * controls that are already there and leaves the focused one alone.
+ */
+
+import { sideGroup } from "zmart-interface/api";
+import { anchorWarning, type Anchor } from "./alignment.ts";
+import {
+  CARRIER_TYPES, carrierType, fromPreset, matchingPreset, geometry, maxRadius,
+  centres, areaLabels, depthMm,
+  type Area, type Carrier, type CarrierType, type Grid, type Preset,
+} from "./carriers.ts";
+
+/** Where a place on the stage, in micrometres from the carrier's zero, lands on screen. */
+type ToScreen = (x: number, y: number) => [number, number];
+
+/** What drawing the carrier is handed: the carrier, the projection, the scale and the inks. */
+interface Drawing {
+  config: Carrier;
+  toScreen: ToScreen;
+  scale: number;
+  colour: string;
+  fill?: string | null;
+}
+
+/** A place a carrier is aligned from: which border it sits on, and where, in the carrier's micrometres. */
+export interface Mark {
+  at: string;
+  x: number;
+  y: number;
+}
+
+/** The alignment points as the panel asks after them; the page keeps them. */
+export interface Anchors {
+  suggest(marks: Mark[]): void;
+  arming(): boolean;
+  list(): Anchor[];
+  picked(): number;
+  snap(index: number): void;
+  light(index: number): void;
+  pick(index: number): void;
+  onChange(redraw: () => void): void;
+}
+
+/** Which pairs of numbers move together. */
+type Link = { grid: boolean; size: boolean; gap: boolean };
+
+/** One box in a row of numbers: what it edits, its label, how it reads and writes, its floor, and for which types it is shown. */
+interface NumberField {
+  name: string;
+  label: string;
+  get: () => number;
+  set: (v: number) => void;
+  min: () => number;
+  when?: (type: CarrierType) => boolean;
+}
+
+const SVG = "http://www.w3.org/2000/svg";
+const svgEl = (tag: string, attrs: Record<string, string | number> = {}): SVGElement => {
+  const e = document.createElementNS(SVG, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+  return e;
+};
+
+const el = <K extends keyof HTMLElementTagNameMap>(
+  tag: K, cls?: string | null, text?: string | null,
+): HTMLElementTagNameMap[K] => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+};
+
+/* Each type is drawn rather than named twice: the icon says slide or plate
+   faster than the word under it does, and the word is there for when it does
+   not. */
+/* How tall a name is, as a share of the well pitch: a thing on the carrier,
+   drawn at the carrier's scale, so it grows and shrinks with the wells. */
+const NAME_OF_THE_PITCH = 0.22;
+/* And how close two names may stand on screen before neither can be read:
+   below this the names are not drawn at all. */
+const NAMES_NEED_PX = 14;
+
+function drawTheNames(ctx: CanvasRenderingContext2D, { config, toScreen, scale, colour }: Drawing): void {
+  const { rows, cols } = areaLabels(config);
+  if (!rows.length) return;
+  const { pitchX, pitchY } = geometry(config);
+  const pitch = Math.min(pitchX, pitchY) * MM_UM * scale;
+  if (pitch < NAMES_NEED_PX) return;
+  const at = (a: Area) => toScreen((a.x - config.w / 2) * MM_UM, (a.y - config.h / 2) * MM_UM);
+  const aw = config.w * MM_UM * scale;
+  const ah = config.h * MM_UM * scale;
+  const size = pitch * NAME_OF_THE_PITCH;
+  const clear = size * 0.9;
+  ctx.save();
+  ctx.fillStyle = colour;
+  ctx.font = `500 ${size}px ui-monospace, Consolas, monospace`;
+  ctx.textBaseline = "middle";
+  ctx.textAlign = "right";
+  for (const row of rows) {
+    const [x, y] = at(row);
+    // a capital sits above the middle of its em box; nudged down to the well's centre
+    ctx.fillText(row.text, x - clear, y + ah / 2 + size * 0.1);
+  }
+  ctx.textAlign = "center";
+  ctx.textBaseline = "bottom";
+  for (const col of cols) {
+    const [x, y] = at(col);
+    ctx.fillText(col.text, x + aw / 2 - 1, y - clear * 0.5);
+  }
+  ctx.restore();
+}
+
+const ICONS: Record<string, (g: SVGElement) => void> = {
+  slide: (g) => {
+    g.append(svgEl("rect", { x: 3, y: 8, width: 22, height: 12, rx: 1.5, fill: "none", stroke: "currentColor", "stroke-width": 1.5 }));
+    g.append(svgEl("rect", { x: 7, y: 11, width: 14, height: 6, rx: 0.5, fill: "currentColor", "fill-opacity": 0.14, stroke: "currentColor", "stroke-width": 0.8 }));
+  },
+  dish: (g) => {
+    g.append(svgEl("circle", { cx: 14, cy: 14, r: 10, fill: "none", stroke: "currentColor", "stroke-width": 1.5 }));
+    g.append(svgEl("circle", { cx: 14, cy: 14, r: 7, fill: "currentColor", "fill-opacity": 0.14, stroke: "currentColor", "stroke-width": 0.8 }));
+  },
+  wellplate: (g) => {
+    g.append(svgEl("rect", { x: 3, y: 6, width: 22, height: 16, rx: 2, fill: "none", stroke: "currentColor", "stroke-width": 1.5 }));
+    for (let r = 0; r < 4; r++) {
+      for (let c = 0; c < 6; c++) {
+        g.append(svgEl("circle", { cx: 6.5 + c * 3, cy: 9.5 + r * 3, r: 1.1, fill: "currentColor", "fill-opacity": 0.2, stroke: "currentColor", "stroke-width": 0.5 }));
+      }
+    }
+  },
+  chamber: (g) => {
+    g.append(svgEl("rect", { x: 3, y: 8, width: 22, height: 12, rx: 1.5, fill: "none", stroke: "currentColor", "stroke-width": 1.5 }));
+    g.append(svgEl("rect", { x: 5.5, y: 10, width: 7, height: 8, rx: 1, fill: "currentColor", "fill-opacity": 0.14, stroke: "currentColor", "stroke-width": 0.8 }));
+    g.append(svgEl("rect", { x: 15.5, y: 10, width: 7, height: 8, rx: 1, fill: "currentColor", "fill-opacity": 0.14, stroke: "currentColor", "stroke-width": 0.8 }));
+  },
+  /* A round disc with a mesh across it, which is what an EM grid is: three
+     millimetres of copper with square holes in it, and the sample over the
+     holes. Drawn as a circle rather than the plate's rectangle so the row of
+     types can be read at a glance. */
+  emgrid: (g) => {
+    /* Ruled lines clipped to the disc, rather than a field of little squares
+       laid inside it. A grid is bars, not tiles: drawn as squares the icon
+       stopped short of the rim in four rounded corners and read as a scatter,
+       where two sets of thin lines carried to the edge read as one mesh. */
+    const R = 10.5;
+    const clip = svgEl("clipPath", { id: "em-disc" });
+    clip.append(svgEl("circle", { cx: 14, cy: 14, r: R - 0.75 }));
+    g.append(clip);
+    const mesh = svgEl("g", {
+      "clip-path": "url(#em-disc)",
+      stroke: "currentColor", "stroke-width": 0.6, "stroke-opacity": 0.75,
+    });
+    for (let i = -3; i <= 3; i++) {
+      const at = 14 + i * 3;
+      mesh.append(svgEl("line", { x1: at, y1: 3, x2: at, y2: 25 }));
+      mesh.append(svgEl("line", { x1: 3, y1: at, x2: 25, y2: at }));
+    }
+    g.append(mesh);
+    g.append(svgEl("circle", { cx: 14, cy: 14, r: R, fill: "none", stroke: "currentColor", "stroke-width": 1.5 }));
+  },
+};
+
+const typeIcon = (id: string): SVGElement => {
+  const svg = svgEl("svg", { width: 28, height: 28, viewBox: "0 0 28 28", fill: "none" });
+  ICONS[id](svg);
+  return svg;
+};
+
+/* Millimetres are the carrier's unit and micrometres are the stage's. This is
+   the only place the two meet. */
+const MM_UM = 1000;
+
+/* The carrier a type opens on: the one it names, or the first it lists when it
+   names none. */
+const opensOn = (type: CarrierType): Preset =>
+  type.presets.find((p) => p.label === type.starts) ?? type.presets[0];
+
+/**
+ * Which way a millimetre of depth runs across the stage view, and how far.
+ *
+ * The canvas looks straight down at the stage, so depth has no direction of
+ * its own there and has to be borrowed. This is the cabinet projection, which
+ * draughtsmen use for exactly this situation: the third axis runs off at an
+ * angle at a fraction of its true length, because a full-length oblique axis
+ * reads as longer than it is.
+ *
+ * A third of the length rather than the usual half, and thirty degrees rather
+ * than the usual forty-five. The vessels here are deep — a cuvette is four and
+ * a half times deeper than it is wide — and at the usual figures the box
+ * climbs so far up the picture that it reads as the subject of it rather than
+ * as one carrier standing on a stage. Flatter and shorter, it says the same
+ * thing more quietly, and what it says is still true: the face the depth is
+ * measured *from* is untouched by either number, which matters because that
+ * face is the footprint every position in the run is placed inside.
+ */
+const DEPTH_RUNS = 1 / 3;
+const DEPTH_ANGLE = Math.PI / 6;
+const DEPTH_ACROSS = DEPTH_RUNS * Math.cos(DEPTH_ANGLE);
+const DEPTH_UP = DEPTH_RUNS * Math.sin(DEPTH_ANGLE);
+
+/**
+ * The two faces of a box a viewer standing over the stage would see besides
+ * its top, drawn behind the footprint so that the footprint itself is left
+ * exactly where it is.
+ *
+ * Two rather than three: the far face is behind the sample and an opaque box
+ * hides it, so drawing it would only put lines through the sample. The top
+ * face is drawn a shade stronger than the side, which is the whole of the
+ * shading — enough for the eye to read a solid, and nothing that pretends to
+ * know where the light is.
+ */
+function drawTheDepthBehind(
+  ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, dx: number, dy: number,
+  fill: string | null | undefined,
+): void {
+  const faces: [number, [number, number][]][] = [
+    [0.55, [[x, y], [x + w, y], [x + w + dx, y - dy], [x + dx, y - dy]]],
+    [0.35, [[x + w, y], [x + w, y + h], [x + w + dx, y + h - dy], [x + w + dx, y - dy]]],
+  ];
+  const was = ctx.globalAlpha;
+  for (const [shade, corners] of faces) {
+    ctx.beginPath();
+    for (const [px, py] of corners) ctx.lineTo(px, py);
+    ctx.closePath();
+    if (fill) {
+      ctx.globalAlpha = was * shade;
+      ctx.fill();
+      ctx.globalAlpha = was;
+    }
+    ctx.stroke();
+  }
+}
+
+/**
+ * The four places a carrier is aligned from, in its own micrometres.
+ *
+ * **On imageable ground, never on the carrier's outline.** These were the four
+ * midpoints of the bounding box, which is right for a dish or a plain area —
+ * whose one area *is* the box — and wrong for anything with a gap down the
+ * middle. Two chambers side by side put the top and bottom marks in the plastic
+ * between them: nothing to drive to, nothing to see, nothing to align against.
+ *
+ * So each one sits on the outermost *area* in its direction, at the middle of
+ * that area's edge. The middle of an edge rather than a corner, because a
+ * corner is the part of a vessel an objective can rarely see — a slide's are
+ * cut back, a plate's are under the skirt, a dish has none.
+ *
+ * Left, right, top and bottom: two pairs facing each other across the carrier,
+ * so the alignment is measured over the longest run in each direction rather
+ * than out of one corner of it.
+ */
+/* How many a carrier is aligned from unless somebody says otherwise.
+
+   One. A single point drives the carrier to where it really is and nothing
+   more, which is the whole of what most runs need: the plate is where the
+   holder put it, square to the stage, and one recognisable place on it says
+   how far off the assumption was. More points measure how the carrier is
+   turned as well, and that is worth asking for rather than worth insisting
+   on — it is four more drives before anything can be scanned. */
+const POINTS_BY_DEFAULT = 1;
+
+export function anchorsUm(config: Grid, howMany = POINTS_BY_DEFAULT): Mark[] {
+  /* Half an area, edge to edge — not `scanBox`, which insets by the rounded
+     corner so a square frame never overhangs it. That inset is right for
+     planning and wrong here: it put every mark a good way inside the line it
+     was supposed to be on, and on a round well the inset is nearly a third of
+     the radius. */
+  const halfW = config.w / 2, halfH = config.h / 2;
+  const areas = centres(config);
+
+  /* Ties are resolved to spread the four marks apart, not to take whichever
+     area came first in the list. On a 96-well plate every well in the left
+     column is equally far left, and on a two-chamber slide both chambers are
+     equally the topmost thing there is.
+
+     Each mark leans a quarter turn on from the one before it — top to the
+     left, right to the top, bottom to the right, left to the bottom — so the
+     four land on four different areas, set round the carrier like hands on a
+     clock. Marks bunched on one area pin where the carrier is without pinning
+     how it is turned: the rotation is read off the distance between them, and
+     there has to be some. */
+  const near = (v: number, w: number) => Math.abs(v - w) < 1e-6;
+  /* Worked out once, not once per area. These used to be called from inside the
+     filter that uses them, which is a sweep of every area for every area: on a
+     plate of a few hundred wells nobody noticed, and on Greiner's high-density
+     plate of twenty-four thousand it took the better part of a minute to lay
+     four marks. `Math.min(...areas)` also throws past about a hundred thousand
+     arguments, so the sweep is written out rather than spread. */
+  const spanOf = (get: (a: Area) => number) => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const a of areas) {
+      const v = get(a);
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    return { lo, hi };
+  };
+  const acrossThem = spanOf((a) => a.x);
+  const downThem = spanOf((a) => a.y);
+
+  /* The four sides, in the order they are handed out: round the carrier the
+     way a clock goes. Point 1 is on the left and each one after it is a
+     quarter turn on, so laying four of them walks the plate once round rather
+     than crossing it twice, and the numbers in the list are the order an
+     operator meets them in at the microscope.
+
+     `lean` is which end of its own side a mark goes to, and the four turn the
+     same way round: the left one to the top, the top one to the right, the
+     right one to the bottom, the bottom one to the left. One point therefore
+     lands at the top left, which is where an operator looks for a carrier's
+     first landmark.
+
+     `on` is where the mark goes relative to the area's centre — exactly on the
+     border, and on the part of it that runs straight. The middle of a side is
+     where a rectangle's edge is vertical or horizontal, and on a circle it is
+     where the rim's tangent is. Either way the mark sits on a line an operator
+     can drive along and see. */
+  const SIDES: {
+    at: string; out: (a: Area) => number; edge: number; along: (a: Area) => number; lean: number; on: [number, number];
+  }[] = [
+    { at: "left", out: (a) => a.x, edge: acrossThem.lo, along: (a) => a.y, lean: -1, on: [-halfW, 0] },
+    { at: "top", out: (a) => a.y, edge: downThem.lo, along: (a) => a.x, lean: +1, on: [0, -halfH] },
+    { at: "right", out: (a) => a.x, edge: acrossThem.hi, along: (a) => a.y, lean: +1, on: [+halfW, 0] },
+    { at: "bottom", out: (a) => a.y, edge: downThem.hi, along: (a) => a.x, lean: -1, on: [0, +halfH] },
+  ];
+
+  /* What each side has to offer: the areas standing on its outermost line, the
+     one it leans towards first and the rest working back along the side. The
+     lean is what spreads the first four over four different areas. */
+  const offers = SIDES.map((side) => ({
+    side,
+    areas: areas
+      .filter((a) => near(side.out(a), side.edge))
+      .sort((a, b) => side.lean * (side.along(b) - side.along(a))),
+  }));
+
+  /* Round by round, a mark from each side in turn, so however many are asked
+     for they come out spread round the carrier rather than gathered down one
+     edge of it. A side that has run out of areas is passed over, and when
+     every side has, that is as many as this carrier can carry. */
+  const marks: Mark[] = [];
+  const used = offers.map(() => 0);
+  while (marks.length < howMany) {
+    const before = marks.length;
+    offers.forEach(({ side, areas: standing }, i) => {
+      if (marks.length >= howMany) return;
+      const a = standing[used[i]];
+      if (!a) return;
+      used[i] += 1;
+      marks.push({ at: side.at, x: (a.x + side.on[0]) * MM_UM, y: (a.y + side.on[1]) * MM_UM });
+    });
+    if (marks.length === before) break;
+  }
+  return marks;
+}
+
+/** As many as this carrier has borders to put them on. See `anchorsUm`. */
+export const howManyAnchorsFit = (config: Grid): number => anchorsUm(config, Infinity).length;
+
+/**
+ * The robust set: the first well area ringed, and the far end of its row.
+ *
+ * Four marks on the first area's own edges pin where the carrier is with
+ * drives no longer than a well; the fifth, on the right edge of the last
+ * area in the same row -- at the same height as the first one's left mark --
+ * pins how the carrier is turned, read over the longest lever the row
+ * offers -- on that area's left edge, facing back toward the first well the
+ * way the sixth does; the sixth does the same down the first column, on the
+ * top edge of its lowest area. A carrier one area wide or tall simply has fewer.
+ */
+function robustAnchorsUm(config: Grid): Mark[] {
+  const halfW = config.w / 2, halfH = config.h / 2;
+  const areas = centres(config);
+  if (!areas.length) return [];
+  const near = (v: number, w: number) => Math.abs(v - w) < 1e-6;
+  const first = areas.reduce((held, a) =>
+    (a.y < held.y - 1e-6 || (near(a.y, held.y) && a.x < held.x) ? a : held));
+  const marks: Mark[] = [
+    { at: "left", x: first.x - halfW, y: first.y },
+    { at: "top", x: first.x, y: first.y - halfH },
+    { at: "right", x: first.x + halfW, y: first.y },
+    { at: "bottom", x: first.x, y: first.y + halfH },
+  ];
+  const rowEnd = areas.reduce((held, a) =>
+    (near(a.y, first.y) && a.x > held.x ? a : held), first);
+  if (rowEnd !== first) marks.push({ at: "left", x: rowEnd.x - halfW, y: rowEnd.y });
+  const columnEnd = areas.reduce((held, a) =>
+    (near(a.x, first.x) && a.y > held.y ? a : held), first);
+  if (columnEnd !== first) marks.push({ at: "top", x: columnEnd.x, y: columnEnd.y - halfH });
+  return marks.map((m) => ({ at: m.at, x: m.x * MM_UM, y: m.y * MM_UM }));
+}
+
+
+export default {
+  id: "carrier",
+  label: "Define Carrier",
+
+  /** The four places this carrier is registered from. See `anchorsUm`. */
+  anchorsUm,
+
+  /** How much stage the carrier covers, for whatever has to frame it. */
+  extentUm(config: Grid): [number, number] {
+    const g = geometry(config);
+    return [g.width * MM_UM, g.height * MM_UM];
+  },
+
+  /**
+   * Every imageable area the carrier declares, drawn from the carrier's own
+   * zero. Under everything else: it is the frame the run happens inside, not a
+   * layer of the run. Handed the projection rather than reaching for it, so
+   * this knows neither how the canvas is panned nor where on the stage the
+   * carrier has been placed — both are the caller's to decide.
+   *
+   * Filled as well as outlined, because an area is somewhere a sample can be
+   * rather than a line around nothing — the stage around it is empty travel,
+   * and the difference between the two is worth seeing at a glance.
+   */
+  drawOn(ctx: CanvasRenderingContext2D, { config, toScreen, scale, colour, fill }: Drawing): void {
+    const g = geometry(config);
+    const aw = config.w * MM_UM * scale;
+    const ah = config.h * MM_UM * scale;
+    /* Too fine to draw one area at a time — Greiner's high-density plate is
+       twenty-four thousand wells a quarter of a millimetre across, which at the
+       scale the whole stage is shown at is a pixel and a bit each. Drawn as one
+       block of ground instead: where the carrier is and how far it reaches is
+       what a picture at that scale can honestly say, and it is what an operator
+       is looking for before they zoom in. This used to return without drawing
+       anything at all, so the carrier was simply absent. */
+    if (aw < 1.5 || ah < 1.5) {
+      const [x, y] = toScreen(0, 0);
+      ctx.save();
+      if (fill) ctx.fillStyle = fill;
+      ctx.strokeStyle = colour;
+      ctx.globalAlpha = 0.8;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.rect(x, y, g.width * MM_UM * scale, g.height * MM_UM * scale);
+      if (fill) ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+    const rad = Math.min(g.corner * MM_UM * scale, aw / 2, ah / 2);
+    const depth = depthMm(config) * MM_UM * scale;
+    ctx.save();
+    if (fill) ctx.fillStyle = fill;
+    ctx.strokeStyle = colour;
+    ctx.globalAlpha = 0.8;
+    ctx.lineWidth = Math.min(1.2, Math.max(0.4, aw * 0.02));
+    // from the same centres anything placing positions inside an area reads,
+    // so the drawing and the positions cannot land in different places
+    for (const a of centres(config)) {
+      const [x, y] = toScreen((a.x - config.w / 2) * MM_UM, (a.y - config.h / 2) * MM_UM);
+      /* A carrier with depth drawn flat is an area with a number attached:
+         the one thing that makes it deep is the one thing the picture leaves
+         out. So the depth is put on the stage as a box behind the footprint —
+         no carrier on offer declares one at the moment, and this is what will
+         draw the next one that does. */
+      if (depth > 0) {
+        drawTheDepthBehind(ctx, x, y, aw, ah,
+          depth * DEPTH_ACROSS, depth * DEPTH_UP, fill);
+      }
+      ctx.beginPath();
+      ctx.roundRect(x, y, aw, ah, rad);
+      if (fill) ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+    drawTheNames(ctx, { config, toScreen, scale, colour });
+  },
+
+  /**
+   * The rows' letters down the left and the columns' numbers along the top,
+   * half a pitch outside the first well, at a size that reads on screen
+   * whatever the zoom. Only while the wells are far enough apart for the
+   * names to stand clear of each other: zoomed out to the stage they are
+   * not drawn, and zoomed in past the plate's edge they go with it.
+   */
+  render(host: HTMLElement, { config, locked, onChange, anchors }: {
+    config: Carrier; locked: boolean; onChange: (next: Carrier) => void; anchors: Anchors;
+  }): { actionSlot: HTMLElement } {
+    let cfg: Carrier = { ...config };
+    /* Whether the two halves of a pair move together is the operator's choice
+       about this session, not part of the carrier — a saved configuration that
+       remembered it would be describing the panel rather than the vessel. */
+    let link: Link = {
+      grid: cfg.rows === cfg.cols,
+      size: cfg.w === cfg.h,
+      gap: cfg.gapX === cfg.gapY,
+    };
+
+    const card = el("div", "carrier-card");
+    const controls = el("div", "carrier-controls");
+    card.append(controls);
+    host.append(card);
+
+    const inputs: { i: HTMLInputElement; get: () => number; decimals: number }[] = [];
+    const commit = (patch: Partial<Carrier>) => {
+      cfg = { ...cfg, ...patch };
+      onChange(cfg);
+      sync();
+    };
+
+    /* The type is chosen in a box of its own, headed by the choosing: it is
+       the first question the step asks, and everything under it is about the
+       answer. */
+    const { group: typeBox, body: typeCard } = sideGroup("Select carrier type");
+    const types = el("div", "carrier-types");
+    for (const t of CARRIER_TYPES) {
+      const b = el("button", "carrier-type");
+      b.type = "button";
+      b.dataset.type = t.id;
+      b.disabled = locked;
+      b.append(typeIcon(t.id), el("span", null, t.label));
+      b.addEventListener("click", () => {
+        const next = fromPreset(t.id, opensOn(carrierType(t.id)));
+        link = { grid: next.rows === next.cols, size: next.w === next.h, gap: true };
+        /* The new type's carriers first, then the carrier: committing writes
+           the chosen one into the list, and replacing the list afterwards threw
+           that away and left the browser showing whichever came first. It only
+           ever looked right because the one a type opened on was the one it
+           listed first. */
+        presets.replaceChildren(...presetOptions(t.id));
+        commit(next);
+      });
+      types.append(b);
+    }
+    typeCard.append(types);
+    controls.append(typeBox);
+
+    /* One body under the type row: every carrier is designed in the same
+       panel, and what differs between them is which groups of it are on
+       screen. */
+    const designer = el("div", "carrier-designer");
+    controls.append(designer);
+
+    /* Which groups a type is about, filled as the groups are built and read
+       by sync(). A group and the rule for showing it are written in the same
+       breath here, which is the only arrangement in which the two cannot
+       drift apart. */
+    const groups: [HTMLElement, (type: CarrierType) => boolean][] = [];
+    const showWhen = (node: HTMLElement, when: (type: CarrierType) => boolean) => { groups.push([node, when]); return node; };
+
+    /* How each row of numbers narrows itself to the carrier on screen. Kept
+       beside the list of groups because the two answer the same question at
+       different sizes: which groups this carrier is about, and which boxes
+       within them. */
+    const fits: (() => void)[] = [];
+
+    /* Custom leads, for every type alike: the way out of the catalogue is
+       found at the top, not below a list that grows. The selection itself is
+       set from the configuration after the options are built, so leading
+       never makes Custom the default. */
+    const presetOptions = (typeId: string) => [
+      new Option("Custom", "-1"),
+      ...carrierType(typeId).presets.map((p, i) => new Option(p.label, String(i))),
+    ];
+
+    /* The catalogue and the three things done with a whole carrier go straight
+       under the type they belong to: picking a wellplate and picking the
+       96-well one out of the catalogue are the same question asked twice over,
+       so neither a box nor a word of their own. The numbers below are the other
+       thing — one measurement of the carrier these name. */
+    const templateCard = el("div", "carrier-templates");
+    const presets = el("select", "carrier-preset");
+    presets.replaceChildren(...presetOptions(cfg.type));
+    presets.addEventListener("change", () => {
+      const i = Number(presets.value);
+      if (i < 0) return;
+      take(fromPreset(cfg.type, carrierType(cfg.type).presets[i]));
+    });
+    const take = (next: Carrier) => {
+      link = { grid: next.rows === next.cols, size: next.w === next.h, gap: true };
+      commit(next);
+    };
+
+    templateCard.append(presets);
+    typeCard.append(templateCard);
+
+    /* Every number the carrier is made of goes in one box: rows and columns,
+       the size of an area, the pitch between them, the corner. They are one
+       description of one thing, and a box apiece made a plate look like four
+       decisions when it is one. */
+    const { group: sizeBox, body: sizeCard } =
+      sideGroup("Configure layout", "carrier-sizes");
+    designer.append(sizeBox);
+
+    /* Where the carrier is on the stage, as against what it is made of. A
+       point is put on the drawing here and driven to on the microscope; what
+       is done with the pair is the next thing to build. */
+    const { group: anchorBox, body: anchorCard } = sideGroup("Align carrier");
+    designer.append(anchorBox);
+
+    /* How many to lay. Beside the button rather than above it, because the two
+       are one sentence: this many points, put them down. */
+    /* Two presses, not a mode and a press. Fast lays the one point most
+       runs need: the carrier is where the holder put it, and one landmark
+       says how far off that was. Robust rings the first well area and reads
+       both levers. Each press lays its own set there and then. */
+    const fastBtn = el("button", "sf-flat sf-doing anchor-fast", "Fast");
+    fastBtn.type = "button";
+    fastBtn.title = "One point: drives the carrier to where it really is";
+    const robustBtn = el("button", "sf-flat sf-doing anchor-robust", "Robust");
+    robustBtn.type = "button";
+    robustBtn.title = "Up to six points: four around the first well area, the far end of its row, and the foot of its column";
+
+    /* The box's own action, filled like Connect on the step before and Update
+       optical configuration on the step after: one obvious thing to press per
+       box, and it looks the same wherever it is. */
+    const anchorAdd = el("button", "run anchor-add", "Reset");
+    anchorAdd.type = "button";
+    /* Put them all down at once. Where a carrier is registered from is a
+       property of its shape, not something an operator should have to find by
+       eye once per point — what they do is drive to each one and say "here". */
+    /* `cfg`, not `config`: this panel redraws itself in place rather than being
+       rebuilt, so the argument it was first rendered with is the carrier the
+       operator started on. Reading it here put a slide's points on a dish. */
+    /* One press each way. Points down and the press takes them away again,
+       which is what an operator wants after dragging three of them somewhere
+       unhelpful and what asking for a different number needs first — with the
+       carrier back where a carrier sits when nobody has aligned it. */
+    fastBtn.addEventListener("click", () => anchors.suggest(anchorsUm(cfg, 1)));
+    robustBtn.addEventListener("click", () => anchors.suggest(robustAnchorsUm(cfg)));
+    anchorAdd.addEventListener("click", () => anchors.suggest([]));
+
+    const anchorLay = el("div", "anchor-lay");
+    anchorLay.append(fastBtn, robustBtn, anchorAdd);
+
+    const anchorList = el("div", "point-list anchor-list");
+    /* Say how many and press, and the list of them appears underneath: the row
+       that lays the points reads before the points it laid. */
+    anchorCard.append(anchorLay, anchorList);
+
+    /** The points put on the carrier so far, in the order they were placed. */
+    const drawAnchors = () => {
+      /* The set is complete or it is not there — where a carrier is aligned
+         from is a property of its shape. So the one press lays them and takes
+         them away again, and says which of the two it is about to do. */
+      /* The box says what is down while anything is, and what would be laid
+         otherwise: a number left over from before would claim six where four
+         are showing. */
+      anchorAdd.classList.toggle("on", anchors.arming());
+      /* Two shapes, one for each thing the box is doing. With nothing down it
+         asks how many and offers to lay them, so the number leads and the press
+         follows it. With points down the question is answered: the number has
+         nothing left to say, and the press — now Reset — belongs under the
+         column of Snaps it undoes rather than above them. */
+      const down = anchors.list().length > 0;
+      fastBtn.hidden = down;
+      robustBtn.hidden = down;
+      anchorAdd.hidden = !down;
+      anchorCard.append(...(down ? [anchorList, anchorLay] : [anchorLay, anchorList]));
+      /* An empty list is not an empty list on screen: it keeps the rules that
+         separate its rows, and with no rows between them they read as one
+         stray line above the button. */
+      anchorList.hidden = !down;
+      anchorList.textContent = "";
+      anchors.list().forEach((a, i) => {
+        const row = el("div", "point-row");
+        /* The mark pressed on the picture is the current row here. `aria-current`
+           and not a class of its own, because that is what the row already
+           answers to elsewhere in the channel and it is the one the screen
+           reader would have wanted anyway. */
+        if (i === anchors.picked()) row.setAttribute("aria-current", "true");
+        const pick = el("div", "point-pick");
+        /* Named by the border it sits on rather than numbered, because that is
+           how it is found on the picture: an operator reading "left" knows
+           which of the four green marks to drive to without counting. */
+        /* Numbers alone. Four rows of coordinates each carrying "mm" is the
+           unit written four times in a column where it never changes, and it
+           was the width that pushed the pairs onto two lines. */
+        /* Numbered, and nothing else but what was read. Where each point sits
+           is drawn on the picture, and the row is for the reading taken there;
+           saying the place again as a number filled it with the half an
+           operator already knows and crowded out the half they came for. */
+        pick.innerHTML = `<span class="idx">Point ${i + 1}</span>`
+          /* What was read is not shown. The stage position is kept on the point
+             — the alignment is worked out from it, and the drawing moves when
+             it changes — but an operator reading this list wants to know which
+             of the four are done, and "Snap again" says that already. Three
+             numbers per row said it a second time and filled the column. */
+          ;
+        /* Drive the microscope to this place, then say so here: the point on
+           the drawing and the place on the stage become one statement. */
+        /* Said in full. It was shortened to "Snap" when the row carried three
+           numbers and a name beside it and the channel is only so wide; the
+           numbers are gone and the room came back with them. */
+        /* The button carries the state of its own point: waiting, or done. Four
+           rows that differ only in a word are four rows an operator has to
+           read; four that differ in colour are four they can count. */
+        const snap = el("button",
+          a.stage ? "sf-flat anchor-snap done" : "sf-flat anchor-snap waiting",
+          a.stage ? "Snap again" : "Snap to current stage position");
+        snap.type = "button";
+        snap.title = "Snap to stage position — tie this point to where the stage is standing now";
+        snap.addEventListener("click", () => anchors.snap(i));
+        pick.append(snap);
+        /* No way to forget one. The four are what this carrier is aligned by
+           and they come from its shape, so throwing one away leaves a carrier
+           aligned by three points and no way to get the fourth back short of
+           laying the set again. Moving one is the answer to a mark in an
+           awkward place. */
+        /* Pointing at a row lights its mark on the picture. On hover because
+           that is the gesture for "which one is this?", and it costs nothing
+           to undo — the operator is looking, not choosing. */
+        row.addEventListener("pointerenter", () => anchors.light(i));
+        row.addEventListener("pointerleave", () => anchors.light(-1));
+        /* Pressing one chooses it, which the picture answers by drawing that
+           mark as the chosen one. The same choice the picture makes when a
+           mark is pressed there, so the two cannot disagree about which point
+           is being worked on — and the Snap inside the row chooses it too,
+           because pressing a point's own button is saying which point. */
+        row.addEventListener("click", () => anchors.pick(i));
+        row.append(pick);
+        anchorList.append(row);
+      });
+      /* Under the points, when the points snapped so far disagree: they are
+         averaged into one shift, so a turned carrier or a point snapped at
+         the wrong well would otherwise place the plate wrong in silence. */
+      const disagreeing = anchorWarning(anchors.list());
+      if (disagreeing) anchorList.append(el("div", "rec-warn anchor-warn", disagreeing));
+    };
+    anchors.onChange(drawAnchors);
+    drawAnchors();
+
+    /**
+     * A row of numbers, with the button that ties two of them at the end.
+     *
+     * One builder for every row of fields in this panel, because a row of
+     * boxes that behaved slightly differently in each group would be several
+     * things to learn instead of one. How many boxes is the carrier's
+     * business and not the row's: a deep carrier's size is three numbers, an
+     * area's is two and a dish's is one, so the row is told how many to show
+     * rather than being written out three times over.
+     *
+     * A row with nothing to tie has no tie column either, and its boxes run
+     * the full width of the group. That is the alignment that reads: a dish
+     * has no other row of numbers to line up with, so a box stopping thirty
+     * pixels short of the edge lines up with nothing and merely looks short
+     * of the buttons above it.
+     */
+    function numbers({ fields, key, step, decimals, max }: {
+      fields: NumberField[]; key?: keyof Link; step: number; decimals: number; max?: number;
+    }) {
+      const group = el("div", "carrier-group");
+      const grid = el("div", "carrier-nums");
+      const cells = fields.map((f) => {
+        const i = document.createElement("input");
+        i.type = "number";
+        i.className = "carrier-num";
+        /* What the box is of, said on the box. The row it is in and the order
+           it stands in are layout and change with the carrier; what it edits
+           does not, so that is what anything looking for it should go by. */
+        i.dataset.field = f.name;
+        i.step = String(step);
+        if (max != null) i.max = String(max);
+        i.addEventListener("input", () => {
+          const v = parseFloat(i.value);
+          if (i.value === "" || Number.isNaN(v)) return;
+          f.set(v);
+        });
+        /* Clamping while typing fights the operator — "1" on its way to "12"
+           is below a minimum of 6 and would be corrected out from under them.
+           So the floor is applied when the field is left, not as it is used. */
+        i.addEventListener("blur", () => {
+          const v = parseFloat(i.value);
+          f.set(Number.isNaN(v) ? f.min() : Math.max(f.min(), v));
+          sync();
+        });
+        inputs.push({ i, get: f.get, decimals });
+        return { ...f, label: el("span", "carrier-label", f.label), i };
+      });
+
+      let tie: HTMLButtonElement | null = null;
+      if (key) {
+        tie = el("button", "carrier-link");
+        tie.type = "button";
+        /* A chain link: two capsule ends and the bar through them. Apart and
+           barless, each number moves alone; linked, the halves close and the
+           bar joins them, in accent. The state is the picture. */
+        tie.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="15" aria-hidden="true" '
+          + 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">'
+          + '<path class="tie-left" d="M9 17H7A5 5 0 0 1 7 7h2"/>'
+          + '<path class="tie-right" d="M15 7h2a5 5 0 0 1 0 10h-2"/>'
+          + '<line class="tie-bar" x1="8" y1="12" x2="16" y2="12"/></svg>';
+        tie.dataset.key = key;
+        tie.title = "Move both together";
+        tie.addEventListener("click", () => {
+          link[key] = !link[key];
+          if (link[key]) cells[1].set(cells[0].get());
+          commit({});
+        });
+      }
+
+      // labels on the first line, boxes on the second, one column each
+      if (!tie) grid.classList.add("no-tie");
+      grid.append(...cells.map((c) => c.label));
+      if (tie) grid.append(el("span"));
+      grid.append(...cells.map((c) => c.i));
+      if (tie) grid.append(tie);
+      group.append(grid);
+      sizeCard.append(group);
+
+      /* How many columns the row is drawn in follows what is in it, so a
+         field that is not this carrier's business takes its column with it
+         rather than leaving a gap where it used to be. */
+      const fit = () => {
+        let shown = 0;
+        for (const c of cells) {
+          const on = !c.when || c.when(carrierType(cfg.type));
+          c.label.hidden = c.i.hidden = !on;
+          if (on) shown += 1;
+        }
+        grid.style.setProperty("--cols", String(shown));
+      };
+      fits.push(fit);
+      return { group, tie };
+    }
+
+    const ties: Partial<Record<keyof Link, HTMLButtonElement | null>> = {};
+    const gridRow = numbers({
+      key: "grid", step: 1, max: 50, decimals: 0,
+      fields: [
+        {
+          name: "rows", label: "ROWS", get: () => cfg.rows, min: () => 1,
+          set: (v) => commit(link.grid ? { rows: Math.round(v), cols: Math.round(v) } : { rows: Math.round(v) }),
+        },
+        {
+          name: "cols", label: "COLUMNS", get: () => cfg.cols, min: () => 1,
+          set: (v) => commit(link.grid ? { rows: Math.round(v), cols: Math.round(v) } : { cols: Math.round(v) }),
+        },
+      ],
+    });
+    // an area and a dish are one area; a row of ones says nothing
+    showWhen(gridRow.group, (t) => t.grid);
+    ties.grid = gridRow.tie;
+
+    /* The size, which is two numbers or three. Depth is in this row rather
+       than in one of its own because it is the same kind of statement as the
+       other two — how big the thing is — and a carrier's size read across one
+       line is one fact rather than a fact and a footnote. The tie stays about
+       the width and the height: a cuvette is square across and deep, and
+       tying its depth to its width would describe a different vessel. */
+    const sizeRow = numbers({
+      key: "size", step: 0.1, decimals: 2,
+      fields: [
+        {
+          name: "w", label: "WIDTH (mm)", get: () => cfg.w, min: () => 0.1,
+          set: (v) => commit(link.size ? { w: v, h: v } : { w: v }),
+        },
+        {
+          name: "h", label: "HEIGHT (mm)", get: () => cfg.h, min: () => 0.1,
+          set: (v) => commit(link.size ? { w: v, h: v } : { h: v }),
+        },
+        {
+          name: "d", label: "DEPTH (mm)", get: () => cfg.d, min: () => 0.1,
+          when: (t) => t.deep, set: (v) => commit({ d: v }),
+        },
+      ],
+    });
+    showWhen(sizeRow.group, (t) => !t.round);
+    ties.size = sizeRow.tie;
+
+    /* A round area has one measurement, and offering a width beside a height
+       invites the operator to make it an ellipse it cannot be. */
+    showWhen(numbers({
+      step: 0.1, decimals: 2,
+      fields: [{
+        name: "diameter", label: "DIAMETER (mm)", get: () => cfg.w, min: () => 0.1,
+        set: (v) => commit({ w: v, h: v }),
+      }],
+    }).group, (t) => t.round);
+
+    /* Pitch is centre to centre, which is what a plate's datasheet quotes and
+       what the stage will be told. The gap is what is stored, because it is
+       what stays meaningful when the area is resized. */
+    const pitchRow = numbers({
+      key: "gap", step: 0.1, decimals: 2,
+      fields: [
+        {
+          name: "columnPitch", label: "COLUMN PITCH (mm)", get: () => cfg.w + cfg.gapX, min: () => cfg.w,
+          set: (v) => {
+            const g = Math.max(0, v - cfg.w);
+            commit(link.gap ? { gapX: g, gapY: g } : { gapX: g });
+          },
+        },
+        {
+          name: "rowPitch", label: "ROW PITCH (mm)", get: () => cfg.h + cfg.gapY, min: () => cfg.h,
+          set: (v) => {
+            const g = Math.max(0, v - cfg.h);
+            commit(link.gap ? { gapX: g, gapY: g } : { gapY: g });
+          },
+        },
+      ],
+    });
+    showWhen(pitchRow.group, (t) => t.grid);
+    ties.gap = pitchRow.tie;
+
+    const shapeGroup = el("div", "carrier-group");
+    const shapeGrid = el("div", "carrier-nums");
+    shapeGrid.append(
+      el("span", "carrier-label", "CORNER RADIUS (mm)"),
+      el("span", "carrier-label", "AREA (mm²)"),
+      el("span"),
+    );
+    const cornerIn = document.createElement("input");
+    cornerIn.type = "number";
+    cornerIn.className = "carrier-num";
+    cornerIn.dataset.field = "corner";
+    cornerIn.step = "0.01";
+    cornerIn.min = "0";
+    cornerIn.addEventListener("input", () => {
+      const v = parseFloat(cornerIn.value);
+      if (cornerIn.value === "" || Number.isNaN(v)) return;
+      const maxR = maxRadius(cfg);
+      commit({ cornerRatio: maxR > 0 ? Math.min(Math.max(v, 0), maxR) / maxR : 0 });
+    });
+    const areaIn = document.createElement("input");
+    areaIn.type = "number";
+    areaIn.className = "carrier-num";
+    areaIn.dataset.field = "area";
+    areaIn.step = "0.01";
+    areaIn.addEventListener("input", () => {
+      const v = parseFloat(areaIn.value);
+      if (areaIn.value === "" || Number.isNaN(v)) return;
+      /* Area runs the other way through the same relation: the shortfall from
+         a full rectangle is r²(4 − π), so the corner it implies is its root. */
+      const lost = cfg.w * cfg.h - v;
+      const r = lost > 0 ? Math.sqrt(lost / (4 - Math.PI)) : 0;
+      const maxR = maxRadius(cfg);
+      commit({ cornerRatio: maxR > 0 ? Math.min(Math.max(r / maxR, 0), 1) : 0 });
+    });
+    inputs.push({ i: cornerIn, get: () => geometry(cfg).corner, decimals: 2 });
+    inputs.push({ i: areaIn, get: () => geometry(cfg).areaMm2, decimals: 2 });
+
+    const shapeBtn = el("button", "carrier-shape");
+    shapeBtn.type = "button";
+    /* Drawn, not typed: the font's box and ring rendered small and woolly.
+       Both shapes ride in the button and the class says which shows. */
+    shapeBtn.innerHTML = '<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" '
+      + 'fill="none" stroke="currentColor" stroke-width="1.6">'
+      + '<rect class="shape-square" x="2.5" y="2.5" width="11" height="11" rx="1.5"/>'
+      + '<circle class="shape-round" cx="8" cy="8" r="5.5"/></svg>';
+    shapeBtn.title = "Square off, or round completely";
+    shapeBtn.addEventListener("click", () => commit({ cornerRatio: cfg.cornerRatio >= 0.99 ? 0 : 1 }));
+    shapeGrid.append(cornerIn, areaIn, shapeBtn);
+    shapeGroup.append(shapeGrid);
+    sizeCard.append(shapeGroup);
+    /* A corner belongs to a carrier whose areas are compartments — a well is
+       round, a chamber's corners are moulded, and both are worth saying. A
+       single free-standing area is a rectangle of the size just given, and a
+       corner and an area restated from that size are two more numbers that
+       only say it again. */
+    showWhen(shapeGroup, (t) => t.grid);
+
+    /* Where the run's own button goes: at the end of the numbers that decide
+       it, so applying reads as the end of the editing.
+
+       Nothing follows it. A panel of totals used to — carrier size, areas,
+       layout, shape — and every one of them was already on screen: the layout
+       is the two boxes above, the shape is the corner control and the drawing
+       beside it, the areas are those two multiplied, and the size is in the
+       rail. Restating the controls under the controls is the panel talking
+       about itself. */
+    const actionSlot = el("div", "carrier-action");
+    card.append(actionSlot);
+
+    function sync() {
+      const type = carrierType(cfg.type);
+      for (const [node, when] of groups) node.hidden = !when(type);
+      for (const fit of fits) fit();
+      for (const { i, get, decimals } of inputs) {
+        if (document.activeElement === i) continue;
+        const v = get();
+        i.value = decimals ? v.toFixed(decimals) : String(v);
+      }
+      cornerIn.max = String(maxRadius(cfg));
+      for (const b of types.querySelectorAll<HTMLButtonElement>(".carrier-type")) {
+        b.classList.toggle("on", b.dataset.type === cfg.type);
+      }
+      for (const [key, b] of Object.entries(ties)) b?.classList.toggle("on", link[key as keyof Link]);
+      presets.value = String(matchingPreset(cfg));
+      shapeBtn.classList.toggle("round", cfg.cornerRatio >= 0.99);
+      for (const i of card.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>("input, select, button")) {
+        i.disabled = locked;
+      }
+    }
+
+    sync();
+    /* The step's press goes at the end of the card: applying reads as the
+       end of the editing. */
+    return { actionSlot };
+  },
+};

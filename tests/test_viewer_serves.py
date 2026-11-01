@@ -38,16 +38,16 @@ CAPTURE_KEEP_AND_SERVE = """
     from pathlib import Path
     from zmart_controller import ZmartController, check_acquire_answer
     import zmart_controller
-    from zmart_interface.workflows.target_acquisition.bridge import pictures, state
-    from zmart_interface.workflows.target_acquisition.bridge.connecting import the_viewers_area
-    from zmart_interface.workflows.target_acquisition.microscope.instrument import Instrument
-    from zmart_interface.workflows.target_acquisition.storage import viewer_service
-    from zmart_interface.workflows.target_acquisition.storage.output import (
+    from target_acquisition.bridge import pictures, state
+    from target_acquisition.bridge.connecting import the_viewers_area
+    from target_acquisition.microscope.instrument import Instrument
+    from target_acquisition.storage import viewer_service
+    from target_acquisition.storage.output import (
         move_record_images, position_label, prepare_acquisition, prepare_experiment)
 
     which, output_root = sys.argv[1], sys.argv[2]
     if which == "interface":
-        from zmart_interface.workflows.target_acquisition import mock_microscope as driver
+        from target_acquisition import mock_microscope as driver
         connection = {**driver.CONNECTION, "output_root": output_root}
     else:
         # The controller's mock is a driver like any other, kept with the

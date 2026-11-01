@@ -1,0 +1,13 @@
+# The environment the focus steps run in: read_images and score_focus.
+# Every package comes from the lock file main.txt, at one version, so it is
+# the same on every computer: conda env create -f main.yml
+# conda-forge only.
+name: ZMART--focus--main
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - -r main.txt

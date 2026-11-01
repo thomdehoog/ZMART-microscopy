@@ -56,26 +56,37 @@ def test_pip_finds_no_package_in_conflict_with_another():
     assert done.returncode == 0, done.stdout + done.stderr
 
 
+def _installed_from() -> str:
+    """The GitHub account install.py took the blocks from: ZMB-UZH, or the one ``--github`` named."""
+    record = WORK / "install-record.json"
+    if record.is_file():
+        return json.loads(record.read_text(encoding="utf-8")).get("github", "ZMB-UZH")
+    return "ZMB-UZH"
+
+
 @pytest.mark.parametrize("name", list(BLOCKS))
 def test_each_block_was_installed_from_its_github_repository(name):
-    """The block came from github.com/ZMB-UZH/<repository>, as a normal (not editable) install.
+    """The block came from github.com/<account>/<repository>, as a normal (not editable) install.
 
-    An editable install, or one from a folder on this computer, would test
-    whatever happens to be in that folder rather than what a new user gets.
+    The account is ZMB-UZH, or the one ``install.py --github`` was given to
+    check work there first. An editable install, or one from a folder on this
+    computer, would test whatever happens to be in that folder rather than
+    what a new user gets.
     """
     where = _where_from(name)
     assert where, f"{name} has no record of where it came from; it was not installed from a URL"
-    assert where.get("url", "").rstrip("/").endswith(f"github.com/ZMB-UZH/{BLOCKS[name]}"), where
+    account = _installed_from()
+    assert where.get("url", "").rstrip("/").endswith(f"github.com/{account}/{BLOCKS[name]}"), where
     assert "vcs_info" in where, f"{name} was not installed from git: {where}"
     assert not where.get("dir_info", {}).get("editable"), f"{name} is an editable install"
 
 
-@pytest.mark.parametrize("repository", ["ZMART-controller", "ZMART-analysis", "ZMART-interface"])
+@pytest.mark.parametrize("repository", ["ZMART-controller", "ZMART-interface"])
 def test_each_clone_holds_the_same_code_as_the_installed_package(repository):
     """The clone in work/ is at the same commit as the package installed from the same repository.
 
-    The clones supply what is not packaged (the mock driver, the analysis
-    workflows, the browser walk). If a clone were newer or older than the
+    The clones supply what is not packaged (the mock driver, and the
+    interface's checkout that builds the page and runs the walk). If a clone were newer or older than the
     installed package, a check could pass or fail on a mix of two versions.
     """
     name = next(n for n, r in BLOCKS.items() if r == repository)
@@ -94,7 +105,7 @@ def test_the_interface_accepts_the_installed_viewer():
     The interface refuses a viewer outside the versions it was tested with,
     and says so only when a run is connected. Asking here finds it before.
     """
-    from zmart_interface.workflows.target_acquisition.storage import viewer_service
+    from target_acquisition.storage import viewer_service
 
     provenance = viewer_service.viewer_provenance()
     viewer_service._the_viewers_make_server()

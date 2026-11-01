@@ -5,3 +5,10 @@ __pycache__/
 .pytest_cache/
 Thumbs.db
 .DS_Store
+
+# The ZMART interface links its npm packages into our folder of interface
+# workflows when it runs their browser tests (a link, nothing installed here),
+# and the browser tests leave their output beside them.
+node_modules/
+test-results/
+mock-output/
