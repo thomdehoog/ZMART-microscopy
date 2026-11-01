@@ -50,6 +50,23 @@ done:
   (`docs/writing-a-workflow.md` in ZMART interface). The page offers an
   installed workflow in its chooser without being rebuilt.
 
+## The rule: an example is never installed with its block
+
+An example lives in the block's repository, where its tests run on it and
+where people can read it. It is **not** part of what `pip install` puts on a
+computer. Installing a block gives you only the block. The workflows you
+actually run come from ZMART Microscopy and are installed on their own.
+
+Today one block already follows this rule and one does not:
+
+| Block | Example | Installed with `pip install` today? |
+|---|---|---|
+| ZMART analysis | `workflows/alignment`, `workflows/object_analysis` | **no**: the package holds only `zmart_analysis` and `engine` |
+| ZMART interface | `target_acquisition` | **yes**: it sits inside the package, at `zmart_interface/workflows/target_acquisition/` |
+
+So ZMART interface needs one more change than marking its example, described
+in section 2 below.
+
 ## What changes
 
 ### 1. ZMART analysis: its pipelines become examples
@@ -67,6 +84,22 @@ done:
 - `target_acquisition` is marked as an example workflow: a full, working
   workflow to read and copy from, and the one the interface's own tests and
   browser walk run.
+- **It moves out of the package**, from
+  `zmart_interface/workflows/target_acquisition/` to a top-level
+  `examples/target_acquisition/` in the repository, which is not packaged.
+  After that, installing the interface no longer installs Target acquisition.
+- **The framework's tests that use it are adjusted.** At least six test files
+  in `zmart_interface/framework/` (for example `test_operator_bridge.py` and
+  `test_stopping_a_focus_map.py`) import parts of Target acquisition
+  directly. They load it from `examples/` instead, so the interface can still
+  be tested on its own.
+- **On a microscope, the workflow comes from ZMART Microscopy.** The
+  interface already has a workflow library: a folder,
+  `zmart-interface/workflows` in the computer's ZMART configuration folder,
+  into which workflow packages are installed separately. ZMART Microscopy's
+  Target acquisition is installed there as a small package, as the
+  interface's `docs/writing-a-workflow.md` describes, and the page offers it
+  in its chooser.
 - `zmart_interface/parts/analysis/workflows.py` no longer assumes the
   pipelines are in a checkout of ZMART analysis. Today it reads
   `ZMART_ANALYSIS_WORKFLOWS` and, when that is missing, tells the operator to
@@ -122,7 +155,10 @@ Each step leaves everything working, with the tests passing.
 1. ZMART analysis: mark the pipelines as examples (README and folder name).
 2. ZMART interface: let a workflow name where its pipelines are, and keep the
    environment variable working for now so nothing breaks.
-3. ZMART interface: mark Target acquisition as an example.
+3. ZMART interface: mark Target acquisition as an example, move it out of
+   the package to `examples/target_acquisition/`, and point the framework's
+   tests at it there. Check that a fresh `pip install` of the interface no
+   longer contains it.
 4. ZMART Microscopy: copy the pipelines into `workflows/analysis/`.
 5. ZMART Microscopy: copy Target acquisition into
    `workflows/target_acquisition/` as an installable package.
