@@ -166,6 +166,30 @@ Each step leaves everything working, with the tests passing.
    copies here, and run the walk on them.
 7. ZMART Microscopy: rewrite the coder notebooks on the installed blocks.
 
+## Releases
+
+When this plan is done, the three repositories it changes each get a new
+release candidate. The controller, the viewer and the drivers are not touched
+by this plan, so their versions stay as they are. (The drivers plan brings
+its own versions for the drivers.)
+
+| Repository | Now | After this plan | Why |
+|---|---|---|---|
+| ZMART interface | `0.1.0rc1` | `0.2.0rc1` | Installing it no longer brings Target acquisition, and it finds pipelines in a new way. Someone relying on the old behaviour will notice, so the middle number goes up. |
+| ZMART analysis | `5.0.0rc2` | `5.0.0rc3` | The engine does not change; only its example folder is marked or renamed, so this is a small step. |
+| ZMART Microscopy | no version yet | `0.1.0rc1` | Once it holds the workflows we run, it needs a version of its own, so we can say which ZMART Microscopy the microscopes run. |
+
+The order matters, because ZMART Microscopy installs the other two at exact
+versions:
+
+1. Release the new release candidates of **ZMART interface** and **ZMART
+   analysis**.
+2. Point ZMART Microscopy's `install.py` at exactly those versions, and give
+   **ZMART Microscopy** its own release candidate.
+3. Run the checks (`tests/` and the walk) on that combination, and write the
+   result into the README's status table, the same way as the run of
+   11 October 2026.
+
 ## Decided
 
 - ZMART interface and ZMART analysis **keep their example workflows**: the
