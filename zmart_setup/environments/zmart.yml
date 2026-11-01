@@ -1,0 +1,16 @@
+# The environment ZMART runs in on a microscope computer: the operator window,
+# the controller, the viewer, the analysis engine and the driver are installed
+# into it by setup_zmart.py. (The analysis steps themselves run in
+# environments of their own, made from the files in workflows/*/analysis.)
+#
+# Everything comes from conda-forge; "nodefaults" keeps Anaconda's own channel
+# out, even on a computer where it is configured. git lets pip fetch the
+# blocks from GitHub.
+name: zmart
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - pip
+  - git

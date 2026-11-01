@@ -1,0 +1,11 @@
+# What people who write code get on top of the zmart environment: JupyterLab,
+# to run the notebooks in workflows/coders/notebooks. setup_zmart.py adds it
+# to the zmart environment with `conda env update`.
+# conda-forge only.
+name: zmart
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - jupyterlab
+  - ipykernel

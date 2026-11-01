@@ -12,3 +12,7 @@ Thumbs.db
 node_modules/
 test-results/
 mock-output/
+
+# What setup_zmart.py writes for this computer: its report, its log and the
+# start files, with this computer's folders written in.
+local/
