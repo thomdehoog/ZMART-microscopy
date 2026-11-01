@@ -60,6 +60,9 @@ def parser() -> argparse.ArgumentParser:
     ask.add_argument("--check", action="store_true",
                      help="install nothing: only check what is installed, and say whether it is ready")
     ask.add_argument("--no-icons", action="store_true", help="put no icons on the desktop")
+    ask.add_argument("--releases", type=Path, default=REPO / "releases.toml", metavar="FILE",
+                     help="the versions file to install from (default releases.toml; "
+                          "releases-trial.toml to try a change before it is released)")
     ask.add_argument("--github", help="take the blocks from this GitHub account instead (to try a change)")
     ask.add_argument("--ref", action="append", default=[], metavar="BLOCK=REF",
                      help="install this tag or branch of one block instead (to try a change)")
@@ -142,12 +145,12 @@ def work(args, earlier: dict, record: Record, shell: Shell, facts: dict) -> None
     record.worked("conda", f"{version.output.strip()} at {conda_exe}")
 
     try:
-        wanted = releases.read(REPO / "releases.toml", args.github, args.ref)
+        wanted = releases.read(args.releases, args.github, args.ref)
     except (OSError, ValueError) as why:
-        record.failed("the versions to install (releases.toml)", str(why),
+        record.failed(f"the versions to install ({args.releases.name})", str(why),
                       "update this copy of ZMART Microscopy (git pull)")
         return
-    facts["releases"] = {"github": wanted.github, **wanted.refs}
+    facts["releases"] = {"file": args.releases.name, "github": wanted.github, **wanted.refs}
 
     record.answers = answers_from(args, earlier)
     coder, microscope, cellpose = (record.answers[key] for key in ("coder", "microscope", "cellpose"))

@@ -40,6 +40,19 @@ def test_releases_name_every_block_at_a_tag():
         assert RELEASES.version(block), f"{block} is not pinned to a release tag: {RELEASES.refs[block]}"
 
 
+def test_the_trial_file_names_every_block():
+    trial = releases.read(REPO / "releases-trial.toml")
+    assert set(trial.refs) == set(releases.BLOCKS)
+
+
+def test_a_setup_can_install_from_the_trial_file(a_setup):
+    code, report, said, computer = a_setup("--releases", str(REPO / "releases-trial.toml"),
+                                           "--no-coder", "--microscope", "mock", "--no-cellpose")
+    assert report["facts"]["releases"]["file"] == "releases-trial.toml"
+    asked = " ".join(" ".join(cmd) for cmd in computer.commands)
+    assert "github.com/thomdehoog/ZMART-interface@examples-and-workflows" in asked
+
+
 def test_a_block_is_asked_for_at_its_release():
     assert RELEASES.address("zmart-drivers", "leica") == (
         f"zmart-drivers[leica] @ git+https://github.com/ZMB-UZH/ZMART-drivers@{RELEASES.refs['zmart-drivers']}"
