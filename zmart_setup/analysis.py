@@ -73,11 +73,13 @@ LOAD_THE_STEPS = """
 import importlib.util, json, sys, traceback
 from pathlib import Path
 failed = {}
-for path in map(Path, sys.argv[1:]):
+for number, path in enumerate(map(Path, sys.argv[1:])):
     sys.path.insert(0, str(path.parent))
     try:
-        spec = importlib.util.spec_from_file_location(f"zmart_check_{path.stem}", path)
-        spec.loader.exec_module(importlib.util.module_from_spec(spec))
+        spec = importlib.util.spec_from_file_location(f"zmart_check_{number}_{path.stem}", path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
     except Exception:
         failed[path.name] = traceback.format_exc(limit=3)
     finally:

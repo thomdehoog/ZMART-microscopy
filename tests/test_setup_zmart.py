@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -98,6 +99,23 @@ def test_a_coder_checks_the_steps_of_both_copies():
     assert set(one) == set(both)
     for name in one:
         assert len(both[name].steps) == 2 * len(one[name].steps), name
+
+
+def test_a_step_with_a_dataclass_loads_in_the_check_as_in_the_engine(tmp_path):
+    step = ("from __future__ import annotations\n"
+            "from dataclasses import dataclass\n\n"
+            "@dataclass(frozen=True)\n"
+            "class Measured:\n"
+            "    name: str\n")
+    paths = []
+    for copy in ("non-coders", "coders"):
+        path = tmp_path / copy / "measure_objects.py"
+        path.parent.mkdir()
+        path.write_text(step, encoding="utf-8")
+        paths.append(str(path))
+    done = subprocess.run([sys.executable, "-c", analysis.LOAD_THE_STEPS, *paths],
+                          capture_output=True, text=True)
+    assert json.loads(done.stdout.strip().splitlines()[-1])["failed"] == {}, done.stdout + done.stderr
 
 
 def test_the_start_file_opens_the_window_on_our_workflows(tmp_path):
