@@ -56,7 +56,7 @@ def test_a_setup_can_install_from_the_trial_file(a_setup):
 
 def test_a_block_is_asked_for_at_its_release():
     assert RELEASES.address("zmart-drivers", "leica") == (
-        f"zmart-drivers[leica] @ git+https://github.com/ZMB-UZH/ZMART-drivers@{RELEASES.refs['zmart-drivers']}"
+        f"zmart-drivers[leica] @ git+https://github.com/{RELEASES.github}/ZMART-drivers@{RELEASES.refs['zmart-drivers']}"
     )
 
 

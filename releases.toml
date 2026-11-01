@@ -8,8 +8,9 @@
 # To try other versions before a release, setup_zmart.py takes --github and
 # --ref (see `python setup_zmart.py --help`); this file is not changed for that.
 
-# The GitHub account the blocks are released from.
-github = "ZMB-UZH"
+# The GitHub account the blocks are released from: thomdehoog,
+# until these releases are brought to ZMB-UZH.
+github = "thomdehoog"
 
 [blocks]
 zmart-controller = "v0.4.0rc8"
