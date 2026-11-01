@@ -1,6 +1,6 @@
 # Plan: the workflows live in ZMART Microscopy
 
-*Status: agreed in outline with Thom on 1 November 2026. Nothing has been changed yet; one question at the end is still open.*
+*Status: steps 1 to 6 done on 1 November 2026, on the branch `examples-and-workflows` of ZMART analysis, ZMART interface and ZMART Microscopy in the `thomdehoog` account, and checked on Linux. Step 7 (the coders' notebooks) and the full check on a Windows workstation are still to do. What was done, and where it differs from the plan, is under "Done" at the end.*
 
 ## In short
 
@@ -193,6 +193,67 @@ Each step leaves everything working, with the tests passing.
    copies here, and run the walk on them.
 7. ZMART Microscopy: rewrite the coder notebooks in
    `workflows/coders/notebooks/` on the installed blocks.
+
+## Done (1 November 2026)
+
+All three on the branch `examples-and-workflows`, in the `thomdehoog` account,
+each started from that repository's `release-candidate`.
+
+**ZMART analysis 0.6.0rc8.** `workflows/` is now `examples/`, and part 3 of the
+docs is "The example workflows". The engine is unchanged. 431 tests pass.
+
+**ZMART interface 0.2.0rc1.** On its release candidate, a workflow was no
+longer installed beside the interface but built into the page, so step 2 and 3
+became a change to the framework (option A, agreed with Thom):
+
+- The interface brings no workflow. It runs a **folder of workflows**, named
+  by `ZMART_INTERFACE_WORKFLOWS` (in a checkout, its `examples/`). The page is
+  built from that folder into its `built-page/`, and the bridge loads the
+  workflows' Python halves and serves that page.
+- Target acquisition, **with its mock microscope**, moved to `examples/`. The
+  mock travels with the workflow, because the workflow starts it; it is not
+  moved back into the package as first thought.
+- A workflow imports the API as `zmart-interface/api`, so it works from any
+  folder. Its unit tests, browser tests and the walk run on a folder outside
+  the interface too.
+- The installed package is the framework alone (15 files); a test holds it so.
+- All checks pass: 475 Python tests, 727 unit tests, type, import, unused-code
+  and API checks, and the browser tests including the ten-step walk. Five
+  browser tests that run the real focus scoring could not run on Linux
+  without conda, and are left for the Windows workstation.
+
+**ZMART Microscopy 0.1.0rc1.**
+
+- `workflows/non-coders/interface/target_acquisition/` and its committed
+  `built-page/`; `workflows/non-coders/analysis/` and
+  `workflows/coders/analysis/`, each with its own tests (171 pass each).
+- `install.py` no longer clones ZMART analysis, makes the analysis
+  environments from our own pipelines, and has `--github` to take the blocks
+  from another account.
+- The checks and `run_walk.py` run our own workflow. A new check holds the
+  committed page to what the build makes.
+- Checked on Linux with the blocks installed from the `thomdehoog` branches:
+  23 checks pass (the two that need conda could not run), the page check
+  passes, and the walk passes on our own Target acquisition.
+
+**Still to do:**
+
+1. Step 7: rewrite the coders' notebooks in `workflows/coders/notebooks/`.
+2. The full check on the Windows workstation, with CPU and GPU:
+
+   ```bash
+   python install.py --github thomdehoog --branch release-candidate \
+       --branch zmart-analysis=examples-and-workflows --branch zmart-interface=examples-and-workflows
+   python -m pytest tests
+   python run_walk.py
+   ```
+
+3. The release, in the order under "Releases": tag ZMART analysis 0.6.0rc8 and
+   ZMART interface 0.2.0rc1, point the interface's `pyproject.toml` and its
+   automatic checks at analysis `v0.6.0rc8`, then ZMART Microscopy 0.1.0rc1, and
+   bring all three to the ZMB's repositories.
+4. ZMART Microscopy's `CLAUDE.md` (on `main`) still says the analysis
+   workflows come from a clone in `work/`; it follows when this reaches `main`.
 
 ## Releases
 
