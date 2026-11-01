@@ -51,11 +51,13 @@ which writes a small script to the temporary folder and runs it.
 
 ## Status
 
-This is a release candidate, 0.1.0rc1: the first in which the workflows live here. It has been
+This is a release candidate, 0.1.0rc2: the first in which the workflows live here. It has been
 checked on Linux on 1 November 2026, with the blocks from the `thomdehoog` account (the command
 above): the plug-in checks pass, except the two that run the analysis in its conda environments,
 which that computer did not have; our page check passes; and the walk passes, through all ten
-steps, on our own Target acquisition. The full check on a Windows workstation is still to come.
+steps, on our own Target acquisition. On a Windows 11 workstation, the same day, everything
+passes: `setup_zmart.py` says "ZMART is ready." (with Cellpose, its GPU seen), all 46 checks in
+`tests/` pass, the analysis in its conda environments included, and so does the walk.
 
 Before that, the earlier release candidate was checked like this. The latest run, on a Windows 11 workstation on 11 October 2026,
 checked the blocks together before their promotion to `main`: the `release-candidate` branch of
