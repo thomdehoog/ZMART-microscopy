@@ -219,7 +219,8 @@ def test_a_setup_that_works_says_zmart_is_ready(a_setup, tmp_path):
     assert report["verdict"] == "ready"
     assert "ZMART is ready." in said
     assert (tmp_path / "local" / "setup.log").is_file()
-    assert list((tmp_path / "local").glob("Start ZMART.*"))
+    assert list((tmp_path / "local").glob("ZMART.*"))
+    assert not list((tmp_path / "local").glob("Start *"))
     assert report["answers"] == {"coder": False, "microscope": "mock", "cellpose": False}
     made = {cmd[-1] for cmd in computer.commands if cmd[1:3] == ["env", "create"]}
     assert "main.yml" in made and "classical.yml" in made and "cellpose.yml" not in made
@@ -229,7 +230,7 @@ def test_a_coder_gets_jupyterlab_and_the_notebooks(a_setup, tmp_path):
     code, report, said, _ = a_setup("--coder", "--microscope", "mock", "--no-cellpose")
     assert code == 0, said
     assert any("JupyterLab" in one["what"] for one in report["outcomes"])
-    assert list((tmp_path / "local").glob("Start ZMART notebooks.*"))
+    assert list((tmp_path / "local").glob("ZMART notebooks.*"))
     assert "the coders' focus pipeline finds focus, end to end" in said
 
 

@@ -99,7 +99,7 @@ python setup_zmart.py
 
 It asks whether you write code and which microscope this computer is for,
 then installs everything, checks everything end to end, and puts a
-**Start ZMART** icon on the desktop. At the end it says either
+**ZMART** icon on the desktop. At the end it says either
 **"ZMART is ready."** or which parts did not work.
 
 **3. If it did not work,** open [Claude Code](https://claude.com/claude-code)

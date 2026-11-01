@@ -5,9 +5,9 @@ So the setup writes a start file for this computer into ``local/`` (kept out
 of git), with the places of the ZMART environment, of conda and of our
 workflows written in, and puts an icon on the desktop that opens it:
 
-- **Start ZMART** opens the operator window, pointed at our workflows
+- **ZMART** opens the operator window, pointed at our workflows
   (``workflows/non-coders/interface``).
-- **Start ZMART notebooks**, for people who write code, opens JupyterLab in
+- **ZMART notebooks**, for people who write code, opens JupyterLab in
   ``workflows/coders/notebooks``.
 
 The start files set up the environment's programs themselves, so nothing has
@@ -52,11 +52,11 @@ class Start:
 def starts_for(repo: Path, coder: bool) -> list[Start]:
     """The ways to start ZMART on this computer: the operator window, and for coders the notebooks."""
     interface = repo / "workflows" / "non-coders" / "interface"
-    starts = [Start("Start ZMART", ["-m", "zmart_interface.launcher"],
+    starts = [Start("ZMART", ["-m", "zmart_interface.launcher"],
                     {"ZMART_INTERFACE_WORKFLOWS": str(interface)}, interface)]
     if coder:
         notebooks = repo / "workflows" / "coders" / "notebooks"
-        starts.append(Start("Start ZMART notebooks", ["-m", "jupyterlab", f"--notebook-dir={notebooks}"],
+        starts.append(Start("ZMART notebooks", ["-m", "jupyterlab", f"--notebook-dir={notebooks}"],
                             {"ZMART_ANALYSIS_WORKFLOWS": str(repo / "workflows" / "coders" / "analysis")},
                             notebooks))
     return starts
