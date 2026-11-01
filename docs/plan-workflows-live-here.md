@@ -16,9 +16,9 @@ inside a block.
 
 Today two blocks still carry real workflows inside them:
 
-- **ZMART analysis** keeps the `alignment` pipelines (focus, orientation,
-  registration) and the `object_analysis` pipelines (Cellpose, watershed,
-  reduce dimensions) in its `workflows/` folder.
+- **ZMART analysis** keeps the `focus` pipeline and the `object_analysis`
+  pipelines (Cellpose, watershed, reduce dimensions) in its `workflows/`
+  folder.
 - **ZMART interface** ships the *Target acquisition* workflow inside its
   package, in `zmart_interface/workflows/target_acquisition/`.
 
@@ -61,7 +61,7 @@ Today one block already follows this rule and one does not:
 
 | Block | Example | Installed with `pip install` today? |
 |---|---|---|
-| ZMART analysis | `workflows/alignment`, `workflows/object_analysis` | **no**: the package holds only `zmart_analysis` and `engine` |
+| ZMART analysis | `workflows/focus`, `workflows/object_analysis` | **no**: the package holds only `zmart_analysis` and `engine` |
 | ZMART interface | `target_acquisition` | **yes**: it sits inside the package, at `zmart_interface/workflows/target_acquisition/` |
 
 So ZMART interface needs one more change than marking its example, described
@@ -109,18 +109,43 @@ in section 2 below.
 
 ### 3. ZMART Microscopy: the workflows we use
 
-- `workflows/target_acquisition/` starts as a copy of the interface's Target
-  acquisition, built into a small installable package the way the
-  interface's `docs/writing-a-workflow.md` describes.
-- `workflows/analysis/alignment/` and `workflows/analysis/object_analysis/`
-  start as copies of the analysis pipelines.
+There are two ways in: one for people who do not write code, through the
+operator window, and one for people who write Python. **Each path has its own
+analysis**, so that one can change without the other:
+
+```
+workflows/
+  non-coders/
+    interface/target_acquisition/   the workflow that plugs into the operator window
+    analysis/focus/                 the pipelines it calls
+    analysis/object_analysis/
+  coders/
+    notebooks/                      Python that drives the microscope through the controller
+    analysis/focus/                 the pipelines the notebooks call
+    analysis/object_analysis/
+```
+
+- `non-coders/interface/target_acquisition/` starts as a copy of the
+  interface's example Target acquisition, built into a small installable
+  package the way the interface's `docs/writing-a-workflow.md` describes. It
+  names `non-coders/analysis/` as the place of its pipelines.
+- `non-coders/analysis/` and `coders/analysis/` both start as copies of ZMART
+  analysis's example pipelines, `focus` and `object_analysis`.
 - `install.py` installs the Target acquisition package from here and makes the
   analysis environments from the pipelines here. It no longer clones ZMART
   analysis only to reach its pipelines.
 - The coder's path, today kept in the archive branch as notebooks, is
-  rewritten on the installed blocks and uses **the same pipelines** as the
-  operator window. Someone who clicks through the operator window and someone
-  who writes Python then get the same analysis.
+  rewritten on the installed blocks and uses `coders/analysis/`.
+
+**The two analyses may drift apart.** That is the reason for keeping them
+separate: a change made for the coders does not quietly change what the
+operator window does, and the other way round. The cost is that the same
+experiment done on the two paths may no longer give exactly the same numbers.
+So when a pipeline is changed on one path, its README says so, and whether
+the other path should follow is a decision someone makes, not an accident.
+The analysis environments have the same names on both paths for as long as
+the pipelines are copies; once a pipeline's environment differs, it gets a
+name of its own, so the two paths never overwrite each other's environment.
 
 ## What you would notice
 
@@ -159,12 +184,15 @@ Each step leaves everything working, with the tests passing.
    the package to `examples/target_acquisition/`, and point the framework's
    tests at it there. Check that a fresh `pip install` of the interface no
    longer contains it.
-4. ZMART Microscopy: copy the pipelines into `workflows/analysis/`.
+4. ZMART Microscopy: copy the pipelines into `workflows/non-coders/analysis/`
+   and `workflows/coders/analysis/`.
 5. ZMART Microscopy: copy Target acquisition into
-   `workflows/target_acquisition/` as an installable package.
+   `workflows/non-coders/interface/target_acquisition/` as an installable
+   package.
 6. ZMART Microscopy: change `install.py` and the checks in `tests/` to use the
    copies here, and run the walk on them.
-7. ZMART Microscopy: rewrite the coder notebooks on the installed blocks.
+7. ZMART Microscopy: rewrite the coder notebooks in
+   `workflows/coders/notebooks/` on the installed blocks.
 
 ## Releases
 
@@ -175,8 +203,8 @@ its own versions for the drivers.)
 
 | Repository | Now | After this plan | Why |
 |---|---|---|---|
-| ZMART interface | `0.1.0rc1` | `0.2.0rc1` | Installing it no longer brings Target acquisition, and it finds pipelines in a new way. Someone relying on the old behaviour will notice, so the middle number goes up. |
-| ZMART analysis | `5.0.0rc2` | `5.0.0rc3` | The engine does not change; only its example folder is marked or renamed, so this is a small step. |
+| ZMART interface | `0.1.0rc10` | `0.2.0rc1` | Installing it no longer brings Target acquisition, and it finds pipelines in a new way. Someone relying on the old behaviour will notice, so the middle number goes up. |
+| ZMART analysis | `0.6.0rc7` | `0.6.0rc8` | The engine does not change; only its example folder is renamed, so this is a small step. |
 | ZMART Microscopy | no version yet | `0.1.0rc1` | Once it holds the workflows we run, it needs a version of its own, so we can say which ZMART Microscopy the microscopes run. |
 
 The order matters, because ZMART Microscopy installs the other two at exact
@@ -193,13 +221,13 @@ versions:
 ## Decided
 
 - ZMART interface and ZMART analysis **keep their example workflows**: the
-  full Target acquisition, and the `alignment` and `object_analysis`
+  full Target acquisition, and the `focus` and `object_analysis`
   pipelines. They are clearly marked as examples, and each block's own tests
   run on them, so the block can be tested by itself.
-
-## Questions to decide
-
-1. In ZMART analysis, should the folder be renamed to `examples/`, or keep
-   the name `workflows/` with a clear note? Renaming makes the purpose clear
-   from the name alone; the interface is the only known user of the path, and
-   this plan changes how it finds pipelines anyway.
+- ZMART analysis's `workflows/` folder is renamed `examples/`. This was done
+  in ZMART analysis 0.6.0rc8, on the branch `examples-and-workflows`.
+- In ZMART Microscopy, **each path has its own analysis**:
+  `workflows/non-coders/analysis/` and `workflows/coders/analysis/`. They may
+  drift apart, on purpose.
+- Every block is built on from its `release-candidate` branch, the newest
+  version of each.
