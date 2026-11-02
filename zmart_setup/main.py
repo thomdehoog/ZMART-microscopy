@@ -35,7 +35,7 @@ LOCAL = REPO / "local"
 
 MICROSCOPES = {
     "mock": "the mock microscope, to try ZMART without a microscope",
-    "leica": "a Leica STELLARIS, driven through LAS X Navigator Expert",
+    "leica": "a Leica Stellaris, driven through LAS X's CAM API (Navigator Expert)",
 }
 
 
