@@ -77,7 +77,7 @@ def main() -> None:
     # The launcher, beside the base environment, and its shortcut on the desktop
     prefix = envs.get(BASE_ENV) or Path(_conda_base(conda)) / "envs" / BASE_ENV
 
-    _launcher(Path(_conda_base(conda)), Path(prefix), settings, args.output_root, args.dry_run)
+    _launcher(conda, Path(prefix), settings, args.output_root, args.dry_run)
 
     print("\nDone. Start the interface from the shortcut on the desktop (README.md, step 3).")
 
@@ -137,16 +137,30 @@ def _clone(conda: str, folder: Path, repo: str, version: str, dry_run: bool) -> 
     _run([conda, "run", "-n", BASE_ENV, "git", "clone", "-b", version, repo, str(folder)], dry_run)
 
 
-def _launcher(base: Path, prefix: Path, settings: dict, output_root: str, dry_run: bool) -> None:
-    """zmart-interface.bat beside the base environment, and a shortcut to it on the desktop."""
+def _launcher(conda: str, prefix: Path, settings: dict, output_root: str, dry_run: bool) -> None:
+    """zmart-interface.bat beside the base environment, and a shortcut to it on the desktop.
+
+    The launcher starts the environment's own zmart-interface with the
+    environment's folders first on the PATH, instead of `conda activate`:
+    activating from a shortcut hung in conda's own activation script on a
+    STELLARIS workstation (2026-11-02). CONDA_EXE is set because the analysis
+    starts its environments through conda. TEMP and TMP point into the
+    environment, because the analysis runs a small script from there, and
+    where an environment's programs may run, that folder may too.
+    """
 
     bat = prefix / "zmart-interface.bat"
+    temp = prefix / "tmp"
+    programs = ";".join(str(p) for p in (prefix, prefix / "Library" / "bin", prefix / "Scripts"))
 
     text = (
         "@echo off\n"
-        f'call "{base / "condabin" / "conda.bat"}" activate {BASE_ENV}\n'
+        f'set "PATH={programs};%PATH%"\n'
+        f'set "CONDA_EXE={conda}"\n'
+        f'set "TEMP={temp}"\n'
+        f'set "TMP={temp}"\n'
         + "".join(f'set "{k}={v}"\n' for k, v in settings.items())
-        + f'zmart-interface --output-root "{output_root}"\n'
+        + f'"{prefix / "Scripts" / "zmart-interface.exe"}" --output-root "{output_root}"\n'
     )
 
     print(f"\nwrite {bat}:\n{text}")
@@ -159,10 +173,11 @@ def _launcher(base: Path, prefix: Path, settings: dict, output_root: str, dry_ru
     shortcut = (
         "$d=[Environment]::GetFolderPath('Desktop');"
         "$s=(New-Object -ComObject WScript.Shell).CreateShortcut(\"$d\\ZMART Interface.lnk\");"
-        f"$s.TargetPath='{bat}';$s.Save()"
+        f"$s.TargetPath='{bat}';$s.IconLocation='{HERE / 'zmart.ico'},0';$s.Save()"
     )
 
     if not dry_run:
+        temp.mkdir(exist_ok=True)
         bat.write_text(text, encoding="utf-8")
 
     _run(["powershell", "-NoProfile", "-Command", shortcut], dry_run)
