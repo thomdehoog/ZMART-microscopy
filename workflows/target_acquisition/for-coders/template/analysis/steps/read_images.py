@@ -1,14 +1,15 @@
 """read_images -- read the image an object analysis works on.
 
 The first step of every object-analysis pipeline. It opens the image once, so
-no step after it opens a file. The image is an OME-Zarr position, as a ZMART
-driver saves one; it is read lazily, so a position costs the planes asked
-for, not its whole array.
+no step after it opens a file. The image is an OME-Zarr position or a TIFF
+(OME-TIFF included); both are read lazily, so a position costs the planes
+asked for, not its whole array.
 
 Takes ``input["image_path"]``, ``channels`` (up to three channels to find the
 objects on, by index or name; None for the first three), ``z_selection`` (a
 plane index, ``"mid"``, or a projection: ``"max"`` or ``"mean"``), and the other
-colours to measure: ``extra_channel_indices`` (channels of the same position).
+colours to measure: ``extra_channel_paths`` (one file per channel) or
+``extra_channel_indices`` (channels of the same position).
 
 Publishes under ``pipeline_data["read_images"]``::
 
@@ -20,7 +21,8 @@ Publishes under ``pipeline_data["read_images"]``::
     pixel_size_um    [x, y], when the file records it in micrometres
     first_pixel_xy_um
                      where the centre of the first pixel lies on the stage,
-                     [x, y], as OME-NGFF defines it
+                     [x, y], when the image is OME-Zarr: OME-NGFF defines this
+                     placement, a TIFF's recorded position does not
     sha256           a digest of the file or position, for the record
 
 ``load_plane`` is also how the ZMART interface reads its previews, so a
@@ -43,6 +45,19 @@ METADATA = {
 
 # Cellpose takes one plane, or up to three channels of one
 MAX_CHANNELS = 3
+
+# Metric length units, to express a stage position recorded in one unit in
+# the unit of the pixel size
+LENGTH_IN_METERS = {
+    "meter": 1.0,
+    "decimeter": 1e-1,
+    "centimeter": 1e-2,
+    "millimeter": 1e-3,
+    "micrometer": 1e-6,
+    "nanometer": 1e-9,
+    "picometer": 1e-12,
+    "angstrom": 1e-10,
+}
 
 
 def run(pipeline_data: dict, state: dict, **params) -> dict:
@@ -68,7 +83,9 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
         "z_selection": z_selection,
         "image_size_px": [int(image.shape[1]), int(image.shape[0])],
         "pixel_size_um": _xy_in_micrometres(metadata, "pixel_size"),
-        "first_pixel_xy_um": _xy_in_micrometres(metadata, "origin"),
+        "first_pixel_xy_um": (
+            _xy_in_micrometres(metadata, "origin") if metadata["format"] == "ome-zarr" else None
+        ),
         "sha256": _sha256(image_path),
     }
 
@@ -86,13 +103,14 @@ def _xy_in_micrometres(metadata: dict, key: str) -> list[float] | None:
     return [float(values["x"]), float(values["y"])]
 
 
-def load_plane(source, level=0, t=0, c=0, z="mid"):
-    """One 2-D plane of an OME-Zarr position, and what the position says about it.
+def load_plane(source, level=0, t=0, c=0, z="mid", series=None):
+    """One 2-D plane of an OME-Zarr position or a TIFF, and what the file says about it.
 
     ``level`` is the resolution level, 0 for full resolution. ``c`` is a
     channel index or a channel name. ``z`` is a plane index, ``"mid"``, or
-    ``"max"`` / ``"mean"`` for a projection along z. Axes the image does not
-    have are ignored.
+    ``"max"`` / ``"mean"`` for a projection along z. ``series`` picks one
+    position of a TIFF that holds several. Axes the image does not have are
+    ignored.
 
     Returns the plane and a dict: source, format, axes, shape, dtype, level,
     the chosen indices, the projection, the channel and its name, the pixel
@@ -104,7 +122,10 @@ def load_plane(source, level=0, t=0, c=0, z="mid"):
     if _is_ome_zarr(text):
         return _load_ome_zarr(text, level, t, c, z)
 
-    raise ValueError(f"{source} is not an OME-Zarr position.")
+    if _is_tiff(text):
+        return _load_tiff(text, level, t, c, z, series)
+
+    raise ValueError(f"{source} is neither an OME-Zarr position nor a TIFF.")
 
 
 def _load_channels(source, channels, z) -> tuple[np.ndarray, dict]:
@@ -146,7 +167,18 @@ def _load_channels(source, channels, z) -> tuple[np.ndarray, dict]:
 
 
 def _extra_channels(given: dict, z_selection) -> list[np.ndarray]:
-    """The other colours of the frame, for the features: channels of the same position."""
+    """The other colours of the frame, for the features.
+
+    A frame stored one file per channel names the files; one stored as a
+    single position names the channel indices to read from it.
+    """
+
+    paths = given.get("extra_channel_paths") or []
+
+    if paths:
+        import tifffile
+
+        return [np.asarray(tifffile.imread(str(path))) for path in paths]
 
     indices = given.get("extra_channel_indices") or []
 
@@ -157,9 +189,10 @@ def _extra_channels(given: dict, z_selection) -> list[np.ndarray]:
 
 
 def _sha256(path) -> str:
-    """A digest of the OME-Zarr position: each file's relative name and bytes, in path order.
+    """A digest of what was read: one file, or every file of an OME-Zarr position.
 
-    A changed chunk and a moved chunk both give a different digest.
+    A position digests each file's relative name and bytes in path order, so
+    a changed chunk and a moved chunk both give a different digest.
     """
 
     root = Path(path)
@@ -352,6 +385,332 @@ def _resolve_level(container, level):
         return text
 
     raise ValueError(f"Resolution level {level!r} not found. Levels: {', '.join(paths)}")
+
+
+def _is_tiff(source) -> bool:
+    """Whether ``source`` names a TIFF, OME-TIFF included."""
+
+    return str(source).lower().endswith((".tif", ".tiff"))
+
+
+def _load_tiff(source, level, t, c, z, series):
+    """One plane of a TIFF, and its metadata from the OME-XML when the file has it."""
+
+    import tifffile
+    import zarr
+
+    with tifffile.TiffFile(str(source)) as tif:
+        series_index = _series_index(tif, series, source)
+
+        chosen_series = tif.series[series_index]
+
+        levels = chosen_series.levels
+
+        try:
+            dataset = levels[_bounded(int(level), len(levels), "level")]
+
+        except (TypeError, ValueError):
+            raise ValueError(
+                f"Resolution level {level!r} not found in {source}, which "
+                f"has {len(levels)} level(s)."
+            ) from None
+
+        # A Zarr view of the TIFF decodes only the tiles behind the plane
+        array = zarr.open(dataset.aszarr(), mode="r")
+
+        axes = [letter.lower() for letter in dataset.axes]
+
+        pixels = _ome_pixels(tif, series_index)
+
+        channel_names = (
+            [channel.name for channel in pixels.channels if channel.name] if pixels else []
+        )
+
+        plane, chosen, projection = _select_plane(array, axes, t, c, z, channel_names)
+
+        # How much smaller this level is than full resolution
+        downsample = chosen_series.shape[axes.index("y")] / array.shape[axes.index("y")]
+
+        pixel_size, unit = _tiff_pixel_size(pixels, downsample)
+
+        channel_index = chosen.get("c")
+
+        metadata = {
+            "source": str(source),
+            "format": "ome-tiff" if tif.is_ome else "tiff",
+            "ngff_version": None,
+            "axes": axes,
+            "shape": [int(size) for size in array.shape],
+            "dtype": str(array.dtype),
+            "level": str(level),
+            # The channel has its own key, as for OME-Zarr, so index holds only t and z
+            "index": {axis: value for axis, value in chosen.items() if axis != "c"},
+            "projection": projection,
+            "channel": channel_index,
+            "channel_name": (
+                channel_names[channel_index]
+                if channel_index is not None and channel_index < len(channel_names)
+                else None
+            ),
+            "pixel_size": pixel_size,
+            "origin": _tiff_origin(pixels, chosen, unit),
+            "space_unit": unit,
+        }
+
+        return plane, metadata
+
+
+def _series_index(tif, series, source) -> int:
+    """The series to read; in a multi-position OME-TIFF a series is one position.
+
+    As with one Zarr per position, a file that holds several positions must
+    be told which one, rather than silently giving the first.
+    """
+
+    names = [one.name or str(index) for index, one in enumerate(tif.series)]
+
+    if series is None:
+        if len(tif.series) > 1:
+            raise ValueError(
+                f"{source} holds {len(tif.series)} positions, so the "
+                f"position has to be named: pass series with an index or a "
+                f"name.\nPositions: {', '.join(names)}"
+            )
+
+        return 0
+
+    if isinstance(series, str) and series in names:
+        return names.index(series)
+
+    try:
+        return _bounded(int(series), len(tif.series), "series")
+
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"Position {series!r} not found in {source}. Positions: {', '.join(names)}"
+        ) from None
+
+
+def _ome_pixels(tif, series_index):
+    """The OME-XML Pixels block of one series, or None when the file has none."""
+
+    if not tif.is_ome or not tif.ome_metadata:
+        return None
+
+    from ome_types import from_xml
+
+    try:
+        images = from_xml(tif.ome_metadata).images
+
+    except Exception:
+        # Unreadable OME-XML costs the metadata, not the pixels
+        return None
+
+    if series_index >= len(images):
+        return None
+
+    return images[series_index].pixels
+
+
+def _select_plane(array, axes, t, c, z, channel_names):
+    """Cut one YX plane out of a TIFF's array, by its axis names.
+
+    Every axis other than y and x gets an index, except z when it is
+    projected. Returns the plane, the chosen indices, and the projection.
+    """
+
+    index = [slice(None)] * len(axes)
+
+    chosen = {}
+
+    projection = _projection_mode(z) if "z" in axes else None
+
+    # Where z ends up once the indexed axes are gone, for the projection
+    z_position = None
+
+    reduced = 0
+
+    for position, name in enumerate(axes):
+        size = array.shape[position]
+
+        if name in ("y", "x"):
+            continue
+
+        if name == "z" and projection:
+            z_position = position - reduced
+
+            continue
+
+        if name == "z":
+            index[position] = _bounded(_z_index(z, size), size, "z")
+
+            chosen["z"] = index[position]
+
+        elif name == "c":
+            index[position] = _resolve_channel(c, size, channel_names)
+
+            chosen["c"] = index[position]
+
+        elif name == "t":
+            index[position] = _bounded(t, size, "t")
+
+            chosen["t"] = index[position]
+
+        elif name == "s" and size > 1:
+            raise ValueError(
+                f"This is a {size}-sample (RGB) image. The steps here work "
+                f"on a single greyscale plane; split the samples into "
+                f"channels first."
+            )
+
+        else:
+            index[position] = 0
+
+        reduced += 1
+
+    source_dtype = np.dtype(array.dtype)
+
+    plane = np.asarray(array[tuple(index)])
+
+    if projection:
+        # Cast back to the file's dtype; integers are rounded, not truncated
+        plane = getattr(plane, projection)(axis=z_position)
+
+        if source_dtype.kind in "iu":
+            plane = plane.round()
+
+        plane = plane.astype(source_dtype)
+
+    if plane.ndim != 2:
+        raise ValueError(f"Expected a 2D plane, got shape {plane.shape} from axes {axes}.")
+
+    return plane, chosen, projection
+
+
+def _resolve_channel(channel, size, channel_names):
+    """A channel index, from an index or from a channel name in the file."""
+
+    if isinstance(channel, str):
+        lowered = [name.lower() for name in channel_names]
+
+        if channel.lower() in lowered:
+            return lowered.index(channel.lower())
+
+        if channel.lstrip("-").isdigit():
+            return _bounded(channel, size, "c")
+
+        raise ValueError(
+            f"Channel {channel!r} not found. "
+            f"Available: {channel_names or 'the file names no channels'}"
+        )
+
+    return _bounded(channel, size, "c")
+
+
+def _tiff_pixel_size(pixels, downsample):
+    """The pixel size in physical units at this resolution level, and its unit.
+
+    Returns ({axis: size}, unit); empty and None when the file records no
+    physical size, as a plain TIFF does not.
+    """
+
+    if pixels is None:
+        return {}, None
+
+    unit = _unit_name(pixels.physical_size_x_unit)
+
+    sizes = {}
+
+    for axis, value, value_unit, factor in (
+        ("y", pixels.physical_size_y, pixels.physical_size_y_unit, downsample),
+        ("x", pixels.physical_size_x, pixels.physical_size_x_unit, downsample),
+        ("z", pixels.physical_size_z, pixels.physical_size_z_unit, 1.0),
+    ):
+        converted = _convert_length(value, _unit_name(value_unit), unit)
+
+        if converted is not None:
+            sizes[axis] = converted * factor
+
+    return sizes, (unit if sizes else None)
+
+
+def _tiff_origin(pixels, chosen, unit):
+    """The stage position the OME Plane entries record for the plane read.
+
+    The entry of the chosen t, c and z is used, else the first. The value is
+    passed on as recorded: writers differ on which point of the image it names
+    (the Leica driver writes the field centre, the controller's mock its
+    corner), so it is not a placement. Returns {} when no position was
+    recorded, and None when one was recorded but cannot be put in the pixel
+    size's unit: no coordinate is better than a wrong one.
+    """
+
+    if pixels is None or not pixels.planes or unit is None:
+        return {}
+
+    plane = next((one for one in pixels.planes if _is_chosen_plane(one, chosen)), pixels.planes[0])
+
+    origin = {}
+
+    for axis, value, value_unit in (
+        ("y", plane.position_y, plane.position_y_unit),
+        ("x", plane.position_x, plane.position_x_unit),
+    ):
+        converted = _convert_length(value, _unit_name(value_unit), unit)
+
+        if converted is None:
+            if value is not None:
+                return None
+
+            continue
+
+        origin[axis] = converted
+
+    return origin
+
+
+def _is_chosen_plane(plane, chosen) -> bool:
+    """Whether an OME Plane entry belongs to the chosen t, c and z.
+
+    An index the entry leaves out, or that was not chosen, does not count
+    against it.
+    """
+
+    for key, attribute in (("t", "the_t"), ("c", "the_c"), ("z", "the_z")):
+        wanted = chosen.get(key)
+
+        if wanted is not None and getattr(plane, attribute, None) not in (None, wanted):
+            return False
+
+    return True
+
+
+def _convert_length(value, from_unit, to_unit):
+    """A length in another metric unit, or None when it cannot be converted."""
+
+    if value is None:
+        return None
+
+    if from_unit is None or from_unit == to_unit:
+        return float(value)
+
+    source_scale = LENGTH_IN_METERS.get(from_unit)
+
+    target_scale = LENGTH_IN_METERS.get(to_unit)
+
+    if not source_scale or not target_scale:
+        return None
+
+    return float(value) * source_scale / target_scale
+
+
+def _unit_name(unit):
+    """An ome-types unit as text, the way ngio reports it ("micrometer")."""
+
+    if unit is None:
+        return None
+
+    return str(getattr(unit, "name", unit)).lower()
 
 
 def _projection_mode(z):

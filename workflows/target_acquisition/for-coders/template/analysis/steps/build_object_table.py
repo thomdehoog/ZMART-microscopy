@@ -170,7 +170,8 @@ def _image_centre(first_pixel_xy_um, image_size_px, pixel_size_um) -> list[float
         )
 
     return [
-        float(first_pixel_xy_um[axis]) + (float(image_size_px[axis]) - 1.0) / 2.0 * float(pixel_size_um[axis])
+        float(first_pixel_xy_um[axis])
+        + (float(image_size_px[axis]) - 1.0) / 2.0 * float(pixel_size_um[axis])
         for axis in (0, 1)
     ]
 

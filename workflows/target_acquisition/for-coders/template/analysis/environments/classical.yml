@@ -1,6 +1,7 @@
-# The environment the analysis steps run in. Every package comes from the
-# lock file classical.txt, at one version, so it is the same on every
-# computer. conda-forge only.
+# The environment of read_images, segment_watershed, measure_objects and build_object_table.
+# Every package comes from the lock file classical.txt, at one version, so it is
+# the same on every computer: conda env create -f classical.yml
+# conda-forge only.
 name: ZMART--target_acquisition_for_coders--classical
 channels:
   - conda-forge

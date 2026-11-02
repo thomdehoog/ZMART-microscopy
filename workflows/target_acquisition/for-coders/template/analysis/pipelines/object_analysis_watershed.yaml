@@ -1,15 +1,13 @@
 # Object analysis for one image tile, with a watershed: the same steps as
 # object_analysis_cellpose.yaml, with segment_watershed finding the nuclei. It
 # needs no torch, so every step runs in the classical environment. The table
-# lands under the same name, `object_analysis`. The operator page calls this
-# "fast".
+# lands under the same name, `object_analysis`.
 #
 # What to submit with each job (see README.md, "Input"):
 #
-#   image_path             the OME-Zarr position the driver saved; its pixel
-#                          size and where it lies on the stage come from its
-#                          metadata
-#   channels               up to three channel indices; null for all
+#   image_path             an OME-Zarr position; its pixel size and where it
+#                          lies on the stage come from its metadata. An
+#                          OME-TIFF needs tile_stage_xy_um too (README.md).
 #
 # What comes back, under `object_analysis`: the object table, one row per
 # object, with its features and stage position.
