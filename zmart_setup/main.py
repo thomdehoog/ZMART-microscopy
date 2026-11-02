@@ -193,7 +193,7 @@ def work(args, earlier: dict, record: Record, shell: Shell, facts: dict) -> None
             coder_prefix = blocks.make_the_environment(shell, record, conda_exe, layout.CODER)
             if coder_prefix is not None:
                 blocks.install_the_blocks(shell, record, coder_prefix, conda_exe, wanted, microscope, layout.CODER)
-                blocks.register_the_driver(shell, record, coder_prefix, conda_exe, microscope)
+                blocks.register_the_driver(shell, record, coder_prefix, conda_exe, microscope, layout.CODER)
         # The operator window's last, so the registry points at its copy of the driver.
         blocks.register_the_driver(shell, record, operator, conda_exe, microscope)
 

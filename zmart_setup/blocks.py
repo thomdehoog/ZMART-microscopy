@@ -142,7 +142,8 @@ def clone(shell, record, prefix: Path, conda_exe: str, releases: Releases, one: 
     return True
 
 
-def register_the_driver(shell, record, prefix: Path, conda_exe: str, microscope: str) -> bool:
+def register_the_driver(shell, record, prefix: Path, conda_exe: str, microscope: str,
+                        environment: Environment = OPERATOR) -> bool:
     """Install the microscope's driver into the controller's registry, once on this computer."""
     if microscope == "mock":
         record.skipped("the microscope's driver", "the mock microscope comes with the workflow; no driver is needed")
@@ -154,9 +155,10 @@ def register_the_driver(shell, record, prefix: Path, conda_exe: str, microscope:
     )
     done = shell.run([conda.python_of(prefix), "-c", program],
                      env=conda.environment_for(prefix, conda_exe), timeout=300, quiet=True)
+    what = f"the Leica driver, from {environment.name}"
     if not done.ok:
-        record.failed("the Leica driver", "it could not be installed into the controller",
+        record.failed(what, "it could not be installed into the controller",
                       "see the log; the driver's README says what it needs", done.shown, done.tail)
         return False
-    record.worked("the Leica driver", f"installed into the controller as '{done.output.strip().splitlines()[-1]}'")
+    record.worked(what, f"installed into the controller as '{done.output.strip().splitlines()[-1]}'")
     return True
