@@ -31,17 +31,7 @@ pip install "zmart-drivers[leica] @ git+https://github.com/ZMB-UZH/ZMART-drivers
 
 Then configure the driver for this microscope, as its manual describes: [setting up the Leica driver](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b8/zmart_drivers/leica/stellaris/navigator_expert/README.md#setting-up-the-driver).
 
-## 2. Set up the driver and controller
-
-### Set up the driver
-
-Set up the driver once for this microscope. For the Leica STELLARIS, start the setup wizard on the computer that runs LAS X; the [Leica driver's manual](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b8/zmart_drivers/leica/stellaris/navigator_expert/README.md#setting-up-the-driver) explains each step, and its [checks at the microscope](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b8/zmart_drivers/leica/stellaris/navigator_expert/testing/hardware/README.md) are worth running before the first experiment:
-
-```bash
-python -m zmart_drivers.leica.stellaris.navigator_expert.driver_setup.wizard
-```
-
-### Set up the controller
+## 2. Set up the controller
 
 Register the driver with the controller, once, as the [controller's guide](https://github.com/ZMB-UZH/ZMART-controller/blob/v0.4.0rc7/docs/plug_in_a_driver/README.md) describes. It prints `stellaris`, the name you connect with:
 
