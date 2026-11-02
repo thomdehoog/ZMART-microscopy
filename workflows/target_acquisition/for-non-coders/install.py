@@ -1,4 +1,4 @@
-"""Set up the rest of the target acquisition workflow for non-coders (README.md, step 2).
+"""Install the rest of the target acquisition workflow for non-coders (README.md, step 2).
 
 Run it from a conda prompt, in this folder, after step 1:
 

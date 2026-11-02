@@ -31,7 +31,7 @@ pip install "zmart-drivers[leica] @ git+https://github.com/ZMB-UZH/ZMART-drivers
 
 Then configure the driver and register it with the controller, once, as the driver's manual describes: [setting up the driver](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b8/zmart_drivers/leica/stellaris/navigator_expert/README.md#setting-up-the-driver) and [through the ZMART Controller](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b8/zmart_drivers/leica/stellaris/navigator_expert/README.md#how-to-call-the-driver).
 
-## 2. Set up the rest
+## 2. Install the rest
 
 One script does the rest. `--output-root` is the folder your runs are saved in; choose one on the drive the microscope saves to:
 
