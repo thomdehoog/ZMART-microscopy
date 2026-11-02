@@ -29,17 +29,9 @@ Install the driver for your microscope. The part in brackets selects it:
 pip install "zmart-drivers[leica] @ git+https://github.com/ZMB-UZH/ZMART-drivers@v0.7.0b8"
 ```
 
-Then configure the driver for this microscope, as its manual describes: [setting up the Leica driver](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b8/zmart_drivers/leica/stellaris/navigator_expert/README.md#setting-up-the-driver).
+Then configure the driver and register it with the controller, once, as the driver's manual describes: [setting up the driver](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b8/zmart_drivers/leica/stellaris/navigator_expert/README.md#setting-up-the-driver) and [through the ZMART Controller](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b8/zmart_drivers/leica/stellaris/navigator_expert/README.md#how-to-call-the-driver).
 
-## 2. Set up the controller
-
-Register the driver with the controller, once, as the [controller's guide](https://github.com/ZMB-UZH/ZMART-controller/blob/v0.4.0rc7/docs/plug_in_a_driver/README.md) describes. It prints `stellaris`, the name you connect with:
-
-```bash
-python -c "from pathlib import Path; import zmart_drivers.leica.stellaris.navigator_expert as d; from zmart_controller import mic; print(mic.register_driver(Path(d.__file__).parent))"
-```
-
-## 3. Set up the rest
+## 2. Set up the rest
 
 One script does the rest. `--output-root` is the folder your runs are saved in; choose one on the drive the microscope saves to:
 
@@ -53,7 +45,7 @@ An environment that already exists is kept. To rebuild one from an earlier versi
 
 The first time the robust detection runs, Cellpose downloads its trained network, once, so do that first run while the computer is online.
 
-## 4. Run the interface
+## 3. Run the interface
 
 Start the microscope's own software first (LAS X, on the STELLARIS). Then double-click **ZMART Interface** on the desktop.
 

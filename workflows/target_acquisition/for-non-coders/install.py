@@ -1,6 +1,6 @@
-"""Set up the rest of the target acquisition workflow for non-coders (README.md, step 3).
+"""Set up the rest of the target acquisition workflow for non-coders (README.md, step 2).
 
-Run it from a conda prompt, in this folder, after steps 1 and 2:
+Run it from a conda prompt, in this folder, after step 1:
 
     python install.py --output-root D:\\ZMART-data
 
@@ -68,7 +68,7 @@ def main() -> None:
 
     _launcher(Path(_conda_base(conda)), Path(prefix), examples, args.output_root, args.dry_run)
 
-    print("\nDone. Start the interface from the shortcut on the desktop (README.md, step 4).")
+    print("\nDone. Start the interface from the shortcut on the desktop (README.md, step 3).")
 
 
 def _arguments() -> argparse.Namespace:
@@ -141,7 +141,7 @@ def _launcher(base: Path, prefix: Path, examples: Path, output_root: str, dry_ru
     print(f"\nwrite {bat}:\n{text}")
 
     if os.name != "nt":
-        print("Not Windows: no launcher written. Start the interface as README.md, step 4, says.")
+        print("Not Windows: no launcher written. Start the interface as README.md, step 3, says.")
         return
 
     # The desktop the user sees, also when it lives in OneDrive
