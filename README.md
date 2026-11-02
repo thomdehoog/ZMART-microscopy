@@ -21,7 +21,7 @@ It also contains an overview of the individual tools of the ZMART toolkit.
 </table>
 <br>
 
-## Example workflows
+## Our workflows for smart microscopy
 
 ### For non-coders
 
