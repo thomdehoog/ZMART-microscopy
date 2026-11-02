@@ -1,6 +1,6 @@
 # Target acquisition workflow for non-coders
 
-> We have tested these installation steps, but we cannot guarantee that they work on every system. If something fails, please open an [issue](https://github.com/ZMB-UZH/ZMART-microscopy/issues).
+> We have tested these installation steps, but we cannot guarantee that they work on every system. We have found that agentic AI coding tools, such as Claude Code, Codex or GitHub Copilot, are often very good at fixing installation problems. If something still fails, please open an [issue](https://github.com/ZMB-UZH/ZMART-microscopy/issues).
 
 ## The workflow
 
