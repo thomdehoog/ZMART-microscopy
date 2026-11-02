@@ -4,7 +4,7 @@
 
 This workflow provides a template [Jupyter notebook](template/target_acquisition_template.ipynb) that runs a target acquisition workflow: it images overview positions, finds targets in them, and images the targets. It is meant as a starting point to develop your own workflow.
 
-It is intentionally **a simplified example** and **not an end-to-end solution**. For an end-to-end example, we refer to the [target acquisition workflow for non-coders](../for-non-coders/).
+It is **intentionally not an end-to-end solution**. For an end-to-end example, we refer to the [target acquisition workflow for non-coders](../for-non-coders/).
 
 ## 1. Install the driver, controller and analysis
 
