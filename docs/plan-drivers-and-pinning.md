@@ -60,14 +60,14 @@ So: one `main` branch, and a tag for every release of a driver.
 | Level | Example | What it is |
 |---|---|---|
 | Vendor | Leica, Nikon, ZEISS | a folder that groups drivers |
-| Driver: vendor / software / API type | Leica / LAS X / Navigator Expert, ZEISS / ZEN / ZEN API | **code**, which is versioned and released |
+| Driver: vendor / software / API type | Leica / LAS X / CAM API, ZEISS / ZEN / ZEN API | **code**, which is versioned and released |
 | Microscope | the Stellaris 5 in Y42-H93 | what differs for this instrument and its test record (inside the driver, section 4), and which version it runs (the pin, section 6) |
 
 A driver is written once per vendor software and API type, not once per
 microscope. Two microscopes driven the same way share one driver, and what
 differs between them is kept in a folder per microscope inside it. This
 means `leica/stellaris5_y42h93/navigator_expert` would become
-`leica/las_x/navigator_expert`, with the Stellaris 5 in Y42-H93 as one of its
+`leica/las_x/cam_api`, with the Stellaris 5 in Y42-H93 as one of its
 microscope folders (see section 4).
 
 The controller already picks an instrument by its whole name, made of the
@@ -86,7 +86,8 @@ and its own tags, while all of them stay in one repository:
 
 ```
 ZMART-drivers/
-  leica/las_x/navigator_expert/   pyproject.toml  →  zmart-driver-leica-las-x-navigator-expert
+  leica/las_x/cam_api/            pyproject.toml  →  zmart-driver-leica-las-x-cam-api
+  leica/las_x/lcs/                pyproject.toml  →  zmart-driver-leica-las-x-lcs
   nikon/nis_elements_6_10/  pyproject.toml  →  zmart-driver-nikon-nis-elements-6-10
   zeiss/zenapi/             pyproject.toml  →  zmart-driver-zeiss-zenapi
   mesospim/                 pyproject.toml  →  zmart-driver-mesospim
@@ -94,7 +95,7 @@ ZMART-drivers/
 ```
 
 Tags name the driver and its version, for example `zeiss-zenapi-v0.2.1` or
-`leica-navigator-expert-v0.3.0`. pip can install one folder of a repository
+`leica-cam-api-v0.3.0`. pip can install one folder of a repository
 at one tag:
 
 ```
@@ -123,20 +124,24 @@ and the way it lets programs in, not the model of the microscope.
 ```
 ZMART-drivers  (one repository)
   main                             what all drivers have in common, and the latest of each
-  leica/las-x/navigator-expert     only the Leica LAS X Navigator Expert driver changes here
-  leica/las-x/navigator            the plain ("classic") Navigator, through LAS X's hardware server (LCS)
+  leica/las-x/cam-api              only the Leica driver through the CAM API (Navigator Expert) changes here
+  leica/las-x/lcs                  the Leica driver through LAS X's hardware server, LCS (the classic Navigator)
   nikon/nis-elements/6.10
   nikon/nis-elements/7
   zeiss/zen/zen-api
   evident/cellsens-fv/rdk          later, once it is a real driver (today only a try-out)
 ```
 
-For Leica, the API type is named after the LAS X window the operator knows,
-not after the connection underneath, because that is what people at the
-microscope recognise. Navigator Expert and the plain Navigator are two
-separate drivers: Navigator Expert needs the Navigator Expert add-in and its
-CAM API, while the plain Navigator talks only to LAS X's hardware server
-(`LCS.EXE`), the same connection LAS X's own Navigator window uses.
+For Leica, the API type is named after the connection the driver uses, like
+every other driver here (decided with Thom on 2 November 2026; an earlier
+draft named them after the LAS X windows). The two are separate drivers:
+
+- **`cam-api`** drives LAS X through the **CAM API** of the Navigator Expert
+  add-in. Operators know it as "Navigator Expert"; the driver's README says
+  so.
+- **`lcs`** drives LAS X through its hardware server, **LCS** (`LCS.EXE`),
+  the same connection LAS X's own plain ("classic") Navigator window uses. It
+  needs no add-in.
 
 For Nikon, NIS-Elements 6.10 and 7 are also two separate drivers, because
 the two versions let programs in differently and need different code.
@@ -150,8 +155,8 @@ The Nikon examples further down use the shorter name `nikon/nis-6.10` for
 
 | Driver | Where it is | State |
 |---|---|---|
-| Leica LAS X Navigator Expert | `main` of both driver repositories, at `leica/stellaris5_y42h93/navigator_expert` | working; most complete in ZMART drivers private |
-| Leica LAS X Navigator | branch `claude/zmart-las-x-navigator-driver-jjxccf`, at `leica/stellaris/navigator` | beta `0.1.0b1`: its route passed 50 checks on the STELLARIS on 15 October 2026; the packaged driver is tested offline only |
+| Leica LAS X, CAM API (Navigator Expert) | `main` of both driver repositories, at `leica/stellaris5_y42h93/navigator_expert` | working; most complete in ZMART drivers private |
+| Leica LAS X, LCS (classic Navigator) | branch `claude/zmart-las-x-navigator-driver-jjxccf`, at `leica/stellaris/navigator` | beta `0.1.0b1`: its route passed 50 checks on the STELLARIS on 15 October 2026; the packaged driver is tested offline only |
 | Nikon NIS-Elements 6.10 | `main`, at `nikon/nis_elements_6_10`, and branch `nikon-nis-elements-ar610` | working |
 | Nikon NIS-Elements 7 | branch `claude/nikon-nis-elements-ar7-0.1.0a1`, at `nikon/nis_elements_ar7` | early alpha `0.1.0a1` |
 | ZEISS ZEN API | `main`, at `zeiss/zenapi` | working |
@@ -171,8 +176,8 @@ history, and every such fix would have to be copied by hand.
 
 Branches follow **the vendor's software and API type**, not microscopes.
 Several microscopes can use one driver: for example, several Leica systems
-that are all driven through LAS X Navigator Expert share the branch
-`leica/las-x/navigator-expert`.
+that are all driven through LAS X's CAM API share the branch
+`leica/las-x/cam-api`.
 
 **Inside the driver: one folder per tested microscope.** A driver is tested
 on the specific microscopes it is used on, and those microscopes can differ
@@ -181,8 +186,8 @@ differently). So on its branch, the driver's folder holds the shared code and
 one folder for each microscope it has been tested on:
 
 ```
-branch leica/las-x/navigator-expert
-  zmart_drivers/leica/las_x/navigator_expert/
+branch leica/las-x/cam-api
+  zmart_drivers/leica/las_x/cam_api/
     driver/                    the code shared by all these microscopes
     microscopes/
       stellaris5-y42h93/       what is different on this microscope, and its test record
@@ -300,7 +305,7 @@ worked on:
 
 | Microscope | Driver | Runs (tag) | Worked on (branch) | Controller contract |
 |---|---|---|---|---|
-| Leica Stellaris 5, Y42-H93 | Leica Navigator Expert | [`leica-navigator-expert-v0.3.0`](#) | [`leica/las-x/navigator-expert`](#) | 0.2 |
+| Leica Stellaris 5, Y42-H93 | Leica LAS X, CAM API | [`leica-cam-api-v0.3.0`](#) | [`leica/las-x/cam-api`](#) | 0.2 |
 | ... | | | | |
 
 A microscope that people do experiments on is always pinned to a **tag**, so
@@ -369,7 +374,7 @@ Each step leaves everything working.
 3. ZMART drivers: inside each driver, make one folder per tested microscope
    with what differs there and its test record, starting with the Leica
    driver (`leica/stellaris5_y42h93` becomes a microscope folder of
-   `leica/las_x/navigator_expert`).
+   `leica/las_x/cam_api`).
 4. ZMART drivers: add the contract version to each driver, and have the
    controller check it.
 5. ZMART drivers private: the same layout, branches and tags.
