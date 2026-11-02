@@ -4,9 +4,9 @@
 
 This workflow consists of a template [Jupyter notebook](template/target_acquisition_template.ipynb) that runs a target acquisition workflow: it images overview positions, finds targets in them, and images the targets.
 
-It is intentionally **a simplified example** and **not an end-to-end solution**. It is meant as a starting point to develop your own workflow with. For an end-to-end example, we refer to the [target acquisition workflow for non-coders](../for-non-coders/).
+It is intentionally **a simplified example** and **not an end-to-end solution**. 
 
-For the template we are using the [ZMART Controller](https://github.com/ZMB-UZH/ZMART-controller), because its simple, universal vocabulary makes the workflow a good starting point for any microscope that has a ZMART driver. As an example, we filter for dividing cells with a simple metric, using analysis done with the [ZMART analysis](https://github.com/ZMB-UZH/ZMART-analysis) pipeline.
+It is meant as a starting point to develop your own workflow. For an end-to-end example, we refer to the [target acquisition workflow for non-coders](../for-non-coders/).
 
 ## Install
 
