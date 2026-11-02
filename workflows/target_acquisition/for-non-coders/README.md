@@ -8,7 +8,7 @@ The [ZMART Interface](https://github.com/ZMB-UZH/ZMART-interface) runs the whole
 
 To build your own workflow in code instead, see the [target acquisition workflow for coders](../for-coders/).
 
-On a ZMB workstation, read [where things must live](https://github.com/ZMB-UZH/ZMART-interface/blob/v0.2.0rc1/docs/install-on-a-microscope.md#where-things-must-live) first: programs only run from `C:\ProgramData\MinicondaZMB`.
+On a ZMB workstation, read [where things must live](https://github.com/ZMB-UZH/ZMART-interface/blob/v0.2.0rc1/docs/install-on-a-microscope.md#where-things-must-live) first: programs only run from the folders AppLocker approves on that computer, so conda, its environments and this repository must be in one of them. `conda info` shows where conda is and where it makes environments.
 
 ## 1. Install the driver and controller
 
