@@ -1,5 +1,7 @@
 # Target acquisition workflow for non-coders
 
+> We have tested these installation steps, but we cannot guarantee that they work on every system. If something fails, please open an [issue](https://github.com/ZMB-UZH/ZMART-microscopy/issues).
+
 ## The workflow
 
 The [ZMART Interface](https://github.com/ZMB-UZH/ZMART-interface) runs the whole target acquisition workflow in one window, without code: it scans an overview, finds targets in it, and images the targets.

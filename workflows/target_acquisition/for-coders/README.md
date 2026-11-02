@@ -1,5 +1,7 @@
 # Target acquisition workflow for coders
 
+> We have tested these installation steps, but we cannot guarantee that they work on every system. If something fails, please open an [issue](https://github.com/ZMB-UZH/ZMART-microscopy/issues).
+
 ## The workflow
 
 This workflow provides a simplified template [Jupyter notebook](template/target_acquisition_template.ipynb) that gets you started with building a target acquisition workflow.
