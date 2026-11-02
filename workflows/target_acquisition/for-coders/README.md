@@ -17,20 +17,23 @@ conda env create -f environment.yml
 conda activate zmart-for-coders
 ```
 
-Install the driver for your microscope, the controller and the analysis engine, and create the environment the [analysis](template/analysis/) runs in:
-
-```bash
-pip install "zmart-drivers[leica] @ git+https://github.com/ZMB-UZH/ZMART-drivers@v0.7.0b8"
-pip install "zmart-controller @ git+https://github.com/ZMB-UZH/ZMART-controller@v0.4.0rc7"
-pip install "zmart-analysis @ git+https://github.com/ZMB-UZH/ZMART-analysis@v0.6.0rc9"
-conda env create -f analysis/environments/classical.yml
-```
-
-The part in brackets selects the driver. These drivers can be installed:
+Install the driver for your microscope. The part in brackets selects it:
 
 | Microscope | Connects through | In brackets | Manual |
 |---|---|---|---|
 | Leica STELLARIS | LAS X Navigator Expert | `leica` | [manual](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b8/zmart_drivers/leica/stellaris/navigator_expert/README.md) |
+
+```bash
+pip install "zmart-drivers[leica] @ git+https://github.com/ZMB-UZH/ZMART-drivers@v0.7.0b8"
+```
+
+Install the controller and the analysis engine, and create the environment the [analysis](template/analysis/) runs in:
+
+```bash
+pip install "zmart-controller @ git+https://github.com/ZMB-UZH/ZMART-controller@v0.4.0rc7"
+pip install "zmart-analysis @ git+https://github.com/ZMB-UZH/ZMART-analysis@v0.6.0rc9"
+conda env create -f analysis/environments/classical.yml
+```
 
 ## 2. Set up the driver
 
