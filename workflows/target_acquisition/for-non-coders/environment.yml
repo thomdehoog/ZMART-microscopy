@@ -1,6 +1,6 @@
 # The base environment of the target acquisition workflow for non-coders: Python
-# and the ZMART Interface, which brings the ZMART Controller, Viewer and Analysis
-# at the versions it was tested with. conda-forge only.
+# and the ZMART Controller, from conda-forge only. The driver is added by hand
+# (README.md, step 1); install.py adds the ZMART Interface (step 3).
 name: zmart-for-non-coders
 channels:
   - conda-forge
@@ -10,4 +10,4 @@ dependencies:
   - pip
   - git
   - pip:
-      - zmart-interface @ git+https://github.com/ZMB-UZH/ZMART-interface@v0.1.0rc6
+      - zmart-controller @ git+https://github.com/ZMB-UZH/ZMART-controller@v0.4.0rc7
