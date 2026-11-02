@@ -35,6 +35,7 @@ Install the controller and the analysis engine, and create the environment the [
 pip install "zmart-controller @ git+https://github.com/ZMB-UZH/ZMART-controller@v0.4.0rc7"
 pip install "zmart-analysis @ git+https://github.com/ZMB-UZH/ZMART-analysis@v0.6.0rc9"
 conda env create -f analysis/environments/classical.yml
+conda env create -f focus/environments/main.yml   # optional: the autofocus example
 ```
 
 ## 2. Set up the driver and controller
