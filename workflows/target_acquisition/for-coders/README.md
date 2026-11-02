@@ -28,7 +28,7 @@ pip install "zmart-analysis @ git+https://github.com/ZMB-UZH/ZMART-analysis@v0.6
 conda env create -f analysis/environments/classical.yml
 ```
 
-The driver above is for a Leica STELLARIS with LAS X Navigator Expert.
+The part in brackets selects the driver: `[leica]` is the driver for a Leica STELLARIS with LAS X Navigator Expert, and the only one released at this version.
 
 ## 2. Set up the driver
 
