@@ -6,7 +6,7 @@ This workflow provides a template [Jupyter notebook](template/target_acquisition
 
 It is intentionally **a simplified example** and **not an end-to-end solution**. For an end-to-end example, we refer to the [target acquisition workflow for non-coders](../for-non-coders/).
 
-## 1. Install
+## 1. Install the driver, controller and analysis
 
 Clone the repository, and create and activate the base environment:
 
