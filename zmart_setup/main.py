@@ -141,7 +141,8 @@ def work(args, earlier: dict, record: Record, shell: Shell, facts: dict) -> None
                       "Miniforge Prompt, and run setup_zmart.py again from it")
         return
     version = shell.run([conda_exe, "--version"], timeout=60, quiet=True)
-    facts["conda"] = {"program": conda_exe, "version": version.output.strip()}
+    facts["conda"] = {"program": conda_exe, "version": version.output.strip(),
+                      **conda.where_it_keeps(shell, conda_exe)}
     record.worked("conda", f"{version.output.strip()} at {conda_exe}")
 
     try:

@@ -158,6 +158,8 @@ class AStandInComputer:
         text = " ".join(command)
         if command[1:3] == ["env", "list"]:
             return self._ok({"envs": [str(folder) for folder in self.environments.values()]})
+        if command[1:3] == ["info", "--json"]:
+            return self._ok({"root_prefix": "/opt/conda", "envs_dirs": ["/opt/conda/envs"]})
         if command[1:3] == ["env", "create"]:
             file = Path(cwd or ".") / command[-1] if cwd else Path(command[-1])
             name = re.search(r"^name:\s*(\S+)", file.read_text(encoding="utf-8"), re.M)[1]
@@ -224,6 +226,33 @@ def test_a_setup_that_works_says_zmart_is_ready(a_setup, tmp_path):
     assert report["answers"] == {"coder": False, "microscope": "mock", "cellpose": False}
     made = {cmd[-1] for cmd in computer.commands if cmd[1:3] == ["env", "create"]}
     assert "main.yml" in made and "classical.yml" in made and "cellpose.yml" not in made
+
+
+def test_the_report_says_where_conda_is_and_makes_its_environments(a_setup):
+    _code, report, _said, _computer = a_setup("--no-coder", "--microscope", "mock", "--no-cellpose")
+    assert report["facts"]["conda"]["root_prefix"] == "/opt/conda"
+    assert report["facts"]["conda"]["envs_dirs"] == ["/opt/conda/envs"]
+
+
+def test_conda_is_found_where_conda_says_and_no_folder_is_guessed(tmp_path, monkeypatch):
+    named = tmp_path / "named" / "conda.exe"
+    named.parent.mkdir()
+    named.write_text("")
+    assert main.conda.find_conda({"CONDA_EXE": str(named)}) == str(named)
+
+    # Without CONDA_EXE: the conda the running Python belongs to, by its own `conda info`
+    root = tmp_path / "its own conda"
+    program = root / ("Scripts/conda.exe" if main.conda.WINDOWS else "bin/conda")
+    program.parent.mkdir(parents=True)
+    program.write_text("")
+    monkeypatch.setattr(main.conda, "_own_root", lambda python: root)
+    assert main.conda.find_conda({}) == str(program)
+
+    # A Python without conda, and none on the PATH: nothing, rather than a guess
+    monkeypatch.setattr(main.conda, "_own_root", lambda python: None)
+    monkeypatch.setattr(main.conda.shutil, "which", lambda name: None)
+    assert main.conda.find_conda({}) is None
+    assert not hasattr(main.conda, "LIKELY_PLACES")
 
 
 def test_a_coder_gets_jupyterlab_and_the_notebooks(a_setup, tmp_path):
