@@ -61,13 +61,13 @@ So: one `main` branch, and a tag for every release of a driver.
 |---|---|---|
 | Vendor | Leica, Nikon, ZEISS | a folder that groups drivers |
 | Driver: vendor / software / API type | Leica / LAS X / CAM API, ZEISS / ZEN / ZEN API | **code**, which is versioned and released |
-| Microscope | the Stellaris 5 in Y42-H93 | what differs for this instrument and its test record (inside the driver, section 4), and which version it runs (the pin, section 6) |
+| Microscope | the Stellaris in Y42-H93 | what differs for this instrument and its test record (inside the driver, section 4), and which version it runs (the pin, section 6) |
 
 A driver is written once per vendor software and API type, not once per
 microscope. Two microscopes driven the same way share one driver, and what
 differs between them is kept in a folder per microscope inside it. This
 means `leica/stellaris5_y42h93/navigator_expert` would become
-`leica/las_x/cam_api`, with the Stellaris 5 in Y42-H93 as one of its
+`leica/las_x/cam_api`, with the Stellaris in Y42-H93 as one of its
 microscope folders (see section 4).
 
 The controller already picks an instrument by its whole name, made of the
@@ -95,7 +95,7 @@ ZMART-drivers/
 ```
 
 Tags name the driver and its version, for example `zeiss-zenapi-v0.2.1` or
-`leica-cam-api-v0.3.0`. pip can install one folder of a repository
+`leica-las-x-cam-api-v0.3.0`. pip can install one folder of a repository
 at one tag:
 
 ```
@@ -190,7 +190,7 @@ branch leica/las-x/cam-api
   zmart_drivers/leica/las_x/cam_api/
     driver/                    the code shared by all these microscopes
     microscopes/
-      stellaris5-y42h93/       what is different on this microscope, and its test record
+      stellaris-y42h93/        what is different on this microscope, and its test record
       <second Leica system>/
       <third Leica system>/
 ```
@@ -286,7 +286,7 @@ of them today.
 ```
 ZMART-microscopy/
   microscopes/
-    leica-stellaris5-y42h93/
+    leica-stellaris-y42h93/
       requirements.txt      exact versions: the driver, the controller,
                             the interface, the viewer, the analysis engine
       limits/
@@ -305,7 +305,7 @@ worked on:
 
 | Microscope | Driver | Runs (tag) | Worked on (branch) | Controller contract |
 |---|---|---|---|---|
-| Leica Stellaris 5, Y42-H93 | Leica LAS X, CAM API | [`leica-cam-api-v0.3.0`](#) | [`leica/las-x/cam-api`](#) | 0.2 |
+| Leica Stellaris, Y42-H93 | Leica LAS X, CAM API | [`leica-las-x-cam-api-v0.3.0`](#) | [`leica/las-x/cam-api`](#) | 0.2 |
 | ... | | | | |
 
 A microscope that people do experiments on is always pinned to a **tag**, so
@@ -373,14 +373,14 @@ Each step leaves everything working.
    moves from a branch, through a test microscope, to a tag.
 3. ZMART drivers: inside each driver, make one folder per tested microscope
    with what differs there and its test record, starting with the Leica
-   driver (`leica/stellaris5_y42h93` becomes a microscope folder of
+   driver (today's `leica/stellaris5_y42h93` becomes the microscope folder `stellaris-y42h93` of
    `leica/las_x/cam_api`).
 4. ZMART drivers: add the contract version to each driver, and have the
    controller check it.
 5. ZMART drivers private: the same layout, branches and tags.
 6. ZMART Microscopy: add `microscopes/` with one folder per real microscope,
    and teach `install.py` to install a microscope by name, for example
-   `python install.py --microscope leica-stellaris5-y42h93`.
+   `python install.py --microscope leica-stellaris-y42h93`.
 7. ZMART Microscopy: add the microscope table to the main page.
 
 ## Questions to decide
