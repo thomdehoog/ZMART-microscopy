@@ -64,23 +64,23 @@ python -c "from pathlib import Path; import zmart_drivers.leica.stellaris.naviga
 
 ### 4. Install the analysis
 
-The focus map and the detection run the `focus` and `object_analysis` workflows of ZMART Analysis, each in its own environment. Clone them next to `ZMART-microscopy`, at version 0.6.0rc7, and create their environments. Version 0.6.0rc7 has the same engine as the 0.6.0rc5 the interface installed, and a Cellpose environment that works and uses the computer's NVIDIA GPU when it has one:
+The focus map and the detection run the `focus` and `object_analysis` workflows of ZMART Analysis, each in its own environment. Clone them next to `ZMART-microscopy`, at version 0.6.0rc9, and create their environments. Version 0.6.0rc9 has the same engine as the 0.6.0rc5 the interface installed. If environments of an earlier version exist, remove them first with `conda env remove -n <name>`:
 
 ```bash
 cd ../../../..
-git clone -b v0.6.0rc7 https://github.com/ZMB-UZH/ZMART-analysis
-conda env create -f ZMART-analysis/workflows/focus/environments/main.yml
-conda env create -f ZMART-analysis/workflows/object_analysis/environments/classical.yml
-conda env create -f ZMART-analysis/workflows/object_analysis/environments/cellpose.yml
-conda env create -f ZMART-analysis/workflows/object_analysis/environments/umap.yml
+git clone -b v0.6.0rc9 https://github.com/ZMB-UZH/ZMART-analysis
+conda env create -f ZMART-analysis/examples/focus/environments/main.yml
+conda env create -f ZMART-analysis/examples/object_analysis/environments/classical.yml
+conda env create -f ZMART-analysis/examples/object_analysis/environments/cellpose.yml
+conda env create -f ZMART-analysis/examples/object_analysis/environments/umap.yml
 ```
 
 `cellpose.yml` is needed for the robust detection only, `umap.yml` for the population plots only. The first time the robust detection runs, Cellpose downloads its trained network from the internet, once, so do that first run while the computer is online.
 
-Tell the interface where the analysis is, with the full path of the `ZMART-analysis` folder, and activate the environment again:
+Tell the interface where the analysis workflows are, with the full path of the `examples` folder in `ZMART-analysis`, and activate the environment again:
 
 ```bash
-conda env config vars set -n zmart-for-non-coders ZMART_ANALYSIS_WORKFLOWS=<full path>/ZMART-analysis
+conda env config vars set -n zmart-for-non-coders ZMART_ANALYSIS_WORKFLOWS=<full path>/ZMART-analysis/examples
 conda activate zmart-for-non-coders
 ```
 
