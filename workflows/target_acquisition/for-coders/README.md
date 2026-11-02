@@ -6,8 +6,6 @@ This workflow consists of a template [Jupyter notebook](template/target_acquisit
 
 It is intentionally **a simplified example** and **not an end-to-end solution**. For an end-to-end example, we refer to the [target acquisition workflow for non-coders](../for-non-coders/).
 
-The notebook drives the microscope through the [ZMART Controller](https://github.com/ZMB-UZH/ZMART-controller), so it runs on any microscope with a ZMART driver, and finds the targets with the [ZMART analysis](https://github.com/ZMB-UZH/ZMART-analysis) engine.
-
 ## 1. Install
 
 Clone the repository, and create and activate the base environment:
