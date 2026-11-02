@@ -10,4 +10,4 @@ dependencies:
   - pip
   - git
   - pip:
-      - zmart-controller @ git+https://github.com/ZMB-UZH/ZMART-controller@v0.4.0rc7
+      - zmart-controller @ git+https://github.com/ZMB-UZH/ZMART-controller@v0.4.0rc8

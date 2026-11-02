@@ -4,9 +4,10 @@ Run it from a conda prompt, in this folder, after step 1:
 
     python install.py --output-root D:\\ZMART-data
 
-It adds the ZMART Interface to the base environment, clones ZMART Analysis
-next to ZMART-microscopy and makes the environments of its example workflows,
-and writes a launcher, zmart-interface.bat, with a shortcut on the desktop.
+It adds the ZMART Interface to the base environment, clones the interface's
+target acquisition workflow and ZMART Analysis next to ZMART-microscopy, makes
+the environments of the analysis, and writes a launcher, zmart-interface.bat,
+with a shortcut on the desktop.
 An environment or clone that already exists is kept.
 
 Only the standard library; it calls conda, git and, for the shortcut,
@@ -24,7 +25,9 @@ from pathlib import Path
 
 ANALYSIS_REPO = "https://github.com/ZMB-UZH/ZMART-analysis"
 ANALYSIS_VERSION = "v0.6.0rc9"
-INTERFACE = "zmart-interface @ git+https://github.com/ZMB-UZH/ZMART-interface@v0.1.0rc6"
+INTERFACE_REPO = "https://github.com/ZMB-UZH/ZMART-interface"
+INTERFACE_VERSION = "v0.2.0rc1"
+INTERFACE = f"zmart-interface @ git+{INTERFACE_REPO}@{INTERFACE_VERSION}"
 BASE_ENV = "zmart-for-non-coders"
 HERE = Path(__file__).resolve().parent
 
@@ -50,23 +53,31 @@ def main() -> None:
 
     _run([conda, "run", "-n", BASE_ENV, "pip", "install", INTERFACE], args.dry_run)
 
-    # ZMART Analysis next to ZMART-microscopy, and its environments
-    analysis = HERE.parents[2].parent / "ZMART-analysis"
+    # The interface's workflow, the steps the operator clicks through, next to ZMART-microscopy
+    beside = HERE.parents[2].parent
 
-    _clone(conda, analysis, args.dry_run)
+    _clone(conda, beside / "ZMART-interface", INTERFACE_REPO, INTERFACE_VERSION, args.dry_run)
+
+    # ZMART Analysis, and its environments
+    analysis = beside / "ZMART-analysis"
+
+    _clone(conda, analysis, ANALYSIS_REPO, ANALYSIS_VERSION, args.dry_run)
 
     for name, file in ANALYSIS_ENVS.items():
         _create_env(conda, envs, name, analysis / file, args.dry_run)
 
-    # Tell the interface where the workflows are, for a manual start too
-    examples = analysis / "examples"
+    # Tell the interface where both are, for a manual start too
+    settings = {
+        "ZMART_INTERFACE_WORKFLOWS": beside / "ZMART-interface" / "examples",
+        "ZMART_ANALYSIS_WORKFLOWS": analysis / "examples",
+    }
 
-    _run([conda, "env", "config", "vars", "set", "-n", BASE_ENV, f"ZMART_ANALYSIS_WORKFLOWS={examples}"], args.dry_run)
+    _run([conda, "env", "config", "vars", "set", "-n", BASE_ENV, *(f"{k}={v}" for k, v in settings.items())], args.dry_run)
 
     # The launcher, beside the base environment, and its shortcut on the desktop
     prefix = envs.get(BASE_ENV) or Path(_conda_base(conda)) / "envs" / BASE_ENV
 
-    _launcher(Path(_conda_base(conda)), Path(prefix), examples, args.output_root, args.dry_run)
+    _launcher(Path(_conda_base(conda)), Path(prefix), settings, args.output_root, args.dry_run)
 
     print("\nDone. Start the interface from the shortcut on the desktop (README.md, step 3).")
 
@@ -116,17 +127,17 @@ def _create_env(conda: str, envs: dict, name: str, file: Path, dry_run: bool) ->
     _run([conda, "env", "create", "-f", str(file)], dry_run)
 
 
-def _clone(conda: str, folder: Path, dry_run: bool) -> None:
-    """Clone ZMART Analysis at its version, unless the folder exists already."""
+def _clone(conda: str, folder: Path, repo: str, version: str, dry_run: bool) -> None:
+    """Clone a repository at its version, unless the folder exists already."""
 
     if folder.exists():
         print(f"{folder} exists and is kept.")
         return
 
-    _run([conda, "run", "-n", BASE_ENV, "git", "clone", "-b", ANALYSIS_VERSION, ANALYSIS_REPO, str(folder)], dry_run)
+    _run([conda, "run", "-n", BASE_ENV, "git", "clone", "-b", version, repo, str(folder)], dry_run)
 
 
-def _launcher(base: Path, prefix: Path, examples: Path, output_root: str, dry_run: bool) -> None:
+def _launcher(base: Path, prefix: Path, settings: dict, output_root: str, dry_run: bool) -> None:
     """zmart-interface.bat beside the base environment, and a shortcut to it on the desktop."""
 
     bat = prefix / "zmart-interface.bat"
@@ -134,8 +145,8 @@ def _launcher(base: Path, prefix: Path, examples: Path, output_root: str, dry_ru
     text = (
         "@echo off\n"
         f'call "{base / "condabin" / "conda.bat"}" activate {BASE_ENV}\n'
-        f'set "ZMART_ANALYSIS_WORKFLOWS={examples}"\n'
-        f'zmart-interface --output-root "{output_root}"\n'
+        + "".join(f'set "{k}={v}"\n' for k, v in settings.items())
+        + f'zmart-interface --output-root "{output_root}"\n'
     )
 
     print(f"\nwrite {bat}:\n{text}")
