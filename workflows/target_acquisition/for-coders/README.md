@@ -43,7 +43,7 @@ Set up the driver once for this microscope. For the Leica STELLARIS, start the s
 python -m zmart_drivers.leica.stellaris.navigator_expert.driver_setup.wizard
 ```
 
-Register the driver with the controller, once. It prints `stellaris`, the name you connect with:
+Then set up the controller: register the driver with it, once, as the [controller's guide](https://github.com/ZMB-UZH/ZMART-controller/blob/v0.4.0rc7/docs/plug_in_a_driver/README.md) describes. It prints `stellaris`, the name you connect with:
 
 ```bash
 python -c "from pathlib import Path; import zmart_drivers.leica.stellaris.navigator_expert as d; from zmart_controller import mic; print(mic.register_driver(Path(d.__file__).parent))"
