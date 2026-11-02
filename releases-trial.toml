@@ -1,0 +1,20 @@
+# The versions to TRY on a computer before a release, used with:
+#
+#     python setup_zmart.py --releases releases-trial.toml
+#
+# releases.toml names the released versions everyone installs. This file names
+# what is being checked before it becomes a release: here, the change that
+# moved the workflows into ZMART Microscopy, still on branches in the
+# thomdehoog account, beside the released versions of the blocks it did not
+# change. When the checks pass, the branches are tagged, releases.toml names
+# the tags, and this file can be emptied again.
+
+# The GitHub account the blocks are taken from for the trial.
+github = "thomdehoog"
+
+[blocks]
+zmart-controller = "v0.4.0rc8"
+zmart-viewer = "v0.5.0rc10"
+zmart-drivers = "v0.7.0b9"
+zmart-analysis = "examples-and-workflows"
+zmart-interface = "examples-and-workflows"

@@ -1,0 +1,19 @@
+# The versions of the ZMART blocks that this copy of ZMART Microscopy installs.
+#
+# setup_zmart.py installs exactly these, never a branch, so every computer set
+# up from the same copy of ZMART Microscopy runs the same code. They change at
+# a release, after the checks in tests/ and the walk (run_walk.py) have passed
+# with exactly these versions.
+#
+# To try other versions before a release, setup_zmart.py takes --github and
+# --ref (see `python setup_zmart.py --help`); this file is not changed for that.
+
+# The GitHub account the blocks are released from.
+github = "ZMB-UZH"
+
+[blocks]
+zmart-controller = "v0.4.0rc8"
+zmart-viewer = "v0.5.0rc10"
+zmart-drivers = "v0.7.0b9"
+zmart-analysis = "v0.6.0rc9"
+zmart-interface = "v0.2.0rc1"

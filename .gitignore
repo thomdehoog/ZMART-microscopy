@@ -1,5 +1,7 @@
 # The clones, the walk's output and the reports that install.py and the checks make
 work/
+# What setup_zmart.py writes for this computer: its report, its log and the start files
+local/
 __pycache__/
 *.pyc
 .pytest_cache/

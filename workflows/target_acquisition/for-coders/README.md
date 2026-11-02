@@ -12,6 +12,8 @@ For an end-to-end example, we refer to the [target acquisition workflow for non-
 
 ## 1. Install the driver and controller
 
+The setup can do steps 1 and 2 for you, from the top folder of `ZMART-microscopy` and with conda's base Python: `python setup_zmart.py --coder --microscope leica`. It also installs the operator window, and checks both end to end. By hand, it goes like this.
+
 In a conda prompt, clone the repository, and create and activate the base environment:
 
 ```bash

@@ -10,45 +10,33 @@ To build your own workflow in code instead, see the [target acquisition workflow
 
 On a ZMB workstation, read [where things must live](https://github.com/ZMB-UZH/ZMART-interface/blob/v0.2.0rc1/docs/install-on-a-microscope.md#where-things-must-live) first: programs only run from the folders AppLocker approves on that computer, so conda, its environments and this repository must be in one of them. `conda info` shows where conda is and where it makes environments.
 
-## 1. Install the driver and controller
+## 1. Install
 
-In a conda prompt, clone the repository, and create and activate the base environment. It installs the ZMART Controller:
+In a conda prompt (Miniforge Prompt), clone the repository and run the setup with conda's base Python. `--output-root` is the folder your runs are saved in; choose one on the drive the microscope saves to:
 
 ```bash
 git clone -b example-workflows https://github.com/ZMB-UZH/ZMART-microscopy
-cd ZMART-microscopy/workflows/target_acquisition/for-non-coders
-conda env create -f environment.yml
-conda activate zmart-for-non-coders
+cd ZMART-microscopy
+python setup_zmart.py --microscope leica --output-root D:\ZMART-data
 ```
 
-Install the driver for your microscope. The part in brackets selects it:
-
-| Microscope | Connects through | In brackets | Manual |
+| Microscope | Connects through | `--microscope` | Manual |
 |---|---|---|---|
 | Leica STELLARIS | LAS X Navigator Expert | `leica` | [manual](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b9/zmart_drivers/leica/stellaris/navigator_expert/README.md) |
+| none: try the workflow first | | `mock` | |
 
-```bash
-pip install "zmart-drivers[leica] @ git+https://github.com/ZMB-UZH/ZMART-drivers@v0.7.0b9"
-```
+The setup makes the environment `zmart-for-non-coders` and installs the ZMART blocks into it at the releases in [`releases.toml`](../../../releases.toml), with the driver for your microscope, which it registers with the ZMART Controller. Next to `ZMART-microscopy`, it clones the interface's target acquisition workflow (the steps you click through) and ZMART Analysis, and makes the environments of the `focus` and `object_analysis` analysis. It asks whether to make the large Cellpose environment for the robust detection (`--cellpose` or `--no-cellpose` answers on the command line). It puts an icon, **ZMART**, on the desktop, then checks everything end to end and ends with **"ZMART is ready."** or a list of what did not work.
 
-Then configure the driver and register it with the controller, once, as the driver's manual describes: [setting up the driver](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b9/zmart_drivers/leica/stellaris/navigator_expert/README.md#setting-up-the-driver) and [through the ZMART Controller](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b9/zmart_drivers/leica/stellaris/navigator_expert/README.md#how-to-call-the-driver).
-
-## 2. Install the rest
-
-One script does the rest. `--output-root` is the folder your runs are saved in; choose one on the drive the microscope saves to:
-
-```bash
-python install.py --output-root D:\ZMART-data
-```
-
-It adds the ZMART Interface 0.2.0rc1 to the base environment, with the viewer and the analysis engine it was tested with. Next to `ZMART-microscopy`, it clones the interface's target acquisition workflow (the steps you click through) and ZMART Analysis 0.6.0rc9, and makes the environments of the `focus` and `object_analysis` analysis. It writes a launcher, `zmart-interface.bat`, into the base environment's folder, with a shortcut, **ZMART Interface**, on the desktop.
-
-An environment that already exists is kept. To rebuild one from an earlier version, remove it first with `conda env remove -n <name>`. `python install.py --output-root D:\ZMART-data --dry-run` shows what it would do.
+When it is not ready, open Claude Code in `ZMART-microscopy` and say: *Read .claude/agents/zmart-install-doctor.md and follow it.* `python setup_zmart.py --check` runs the checks again without installing anything. An environment that already exists is kept; to rebuild one, remove it first with `conda env remove -n <name>`.
 
 The first time the robust detection runs, Cellpose downloads its trained network, once, so do that first run while the computer is online.
 
+## 2. Set up the driver
+
+Once per microscope, set the driver up as its manual describes: [setting up the driver](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b9/zmart_drivers/leica/stellaris/navigator_expert/README.md#setting-up-the-driver). A microscope that was set up before keeps its settings.
+
 ## 3. Run the interface
 
-Start the microscope's own software first (LAS X, on the STELLARIS). Then double-click **ZMART Interface** on the desktop.
+Start the microscope's own software first (LAS X, on the STELLARIS). Then double-click **ZMART** on the desktop.
 
 Pick your microscope on the first step and follow the steps. To try the workflow without a microscope, pick **Mock**.
