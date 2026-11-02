@@ -37,9 +37,13 @@ conda env create -f analysis/environments/classical.yml
 
 ## 2. Set up the driver and controller
 
-Set up the driver once for this microscope, as its manual describes: [setting up the driver](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b8/zmart_drivers/leica/stellaris/navigator_expert/README.md#setting-up-the-driver). Before the first experiment, run its [checks at the microscope](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b8/zmart_drivers/leica/stellaris/navigator_expert/testing/hardware/README.md).
+Set up the driver once for this microscope. For the Leica STELLARIS, start the setup wizard on the computer that runs LAS X; the [Leica driver's manual](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b8/zmart_drivers/leica/stellaris/navigator_expert/README.md#setting-up-the-driver) explains each step, and its [checks at the microscope](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b8/zmart_drivers/leica/stellaris/navigator_expert/testing/hardware/README.md) are worth running before the first experiment:
 
-Then register the driver with the controller, once. It prints `stellaris`, the name you connect with:
+```bash
+python -m zmart_drivers.leica.stellaris.navigator_expert.driver_setup.wizard
+```
+
+Register the driver with the controller, once. It prints `stellaris`, the name you connect with:
 
 ```bash
 python -c "from pathlib import Path; import zmart_drivers.leica.stellaris.navigator_expert as d; from zmart_controller import mic; print(mic.register_driver(Path(d.__file__).parent))"
