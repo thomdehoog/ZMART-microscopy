@@ -5,7 +5,7 @@ So the setup writes a start file for this computer into ``local/`` (kept out
 of git), with the places of the ZMART environment, of conda and of our
 workflows written in, and puts an icon on the desktop that opens it:
 
-- **ZMART** opens the operator window in ``zmart-for-non-coders``, pointed
+- **ZMART interface** opens the operator window in ``zmart-for-non-coders``, pointed
   at the interface's workflows and the analysis pipelines cloned next to
   ZMART Microscopy.
 - **ZMART notebook**, for people who write code, opens JupyterLab in
@@ -62,7 +62,7 @@ def starts_for(operator: Path, coder: Path | None, output_root: str | None = Non
     """
     window = clones()["interface"].workflows
     module = ["-m", "zmart_interface.launcher"] + (["--output-root", output_root] if output_root else [])
-    starts = [Start("ZMART", operator, module,
+    starts = [Start("ZMART interface", operator, module,
                     {"ZMART_INTERFACE_WORKFLOWS": str(window),
                      "ZMART_ANALYSIS_WORKFLOWS": str(clones()["analysis"].workflows),
                      **_temp(operator)}, window)]

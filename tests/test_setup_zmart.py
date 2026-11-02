@@ -262,7 +262,7 @@ def test_a_setup_that_works_says_zmart_is_ready(a_setup, tmp_path):
     assert report["verdict"] == "ready"
     assert "ZMART is ready." in said
     assert (tmp_path / "local" / "setup.log").is_file()
-    assert list((tmp_path / "local").glob("ZMART.*"))
+    assert list((tmp_path / "local").glob("ZMART interface.*"))
     assert not list((tmp_path / "local").glob("Start *"))
     assert report["answers"] == {"coder": False, "microscope": "mock", "cellpose": False, "output_root": None}
     made = {cmd[-1] for cmd in computer.commands if cmd[1:3] == ["env", "create"]}
@@ -310,7 +310,7 @@ def test_the_window_saves_its_runs_where_it_was_told(a_setup, tmp_path):
                                     "--output-root", "D:/ZMART-data")
     assert code == 0, said
     assert report["answers"]["output_root"] == "D:/ZMART-data"
-    start = next((tmp_path / "local").glob("ZMART.*")).read_text(encoding="utf-8")
+    start = next((tmp_path / "local").glob("ZMART interface.*")).read_text(encoding="utf-8")
     assert "--output-root D:/ZMART-data" in start
 
 
