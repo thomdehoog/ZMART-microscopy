@@ -32,39 +32,13 @@ The driver above is for a Leica STELLARIS with LAS X Navigator Expert.
 
 ## 2. Set up the driver
 
-Tell the driver, once, about this microscope: where its pictures go, how far the stage may travel, which point counts as zero, and how its images and objectives line up. The setup wizard walks you through this; the [manual](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b8/zmart_drivers/leica/stellaris/navigator_expert/README.md#setting-up-the-driver) explains each step. Start it on the computer that runs LAS X:
+Set up the driver once for this microscope, as its manual describes: [setting up the driver](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b8/zmart_drivers/leica/stellaris/navigator_expert/README.md#setting-up-the-driver). Before the first experiment, run its [checks at the microscope](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b8/zmart_drivers/leica/stellaris/navigator_expert/testing/hardware/README.md).
 
-```bash
-python -m zmart_drivers.leica.stellaris.navigator_expert.driver_setup.wizard
-```
-
-Then register the driver with the controller, once ([how](https://github.com/ZMB-UZH/ZMART-controller/blob/v0.4.0rc7/docs/plug_in_a_driver/README.md)). It prints `stellaris`, the name you connect with:
+Then register the driver with the controller, once. It prints `stellaris`, the name you connect with:
 
 ```bash
 python -c "from pathlib import Path; import zmart_drivers.leica.stellaris.navigator_expert as d; from zmart_controller import mic; print(mic.register_driver(Path(d.__file__).parent))"
 ```
-
-### Check it at the microscope
-
-Before the first experiment, check that the driver and the controller work together on this computer. The checks are not part of the installed package, so clone the driver at the same version and run them from the folder that holds the clone:
-
-```bash
-pip install "zmart-drivers[leica,test] @ git+https://github.com/ZMB-UZH/ZMART-drivers@v0.7.0b8"
-git clone -b v0.7.0b8 https://github.com/ZMB-UZH/ZMART-drivers
-python ZMART-drivers/zmart_drivers/leica/stellaris/navigator_expert/testing/run_ci.py --controller
-```
-
-This first run needs no microscope and takes about five minutes. Then start LAS X in its simulator mode, and run the checks against it:
-
-```bash
-python ZMART-drivers/zmart_drivers/leica/stellaris/navigator_expert/testing/run_ci.py --hardware --controller
-```
-
-- **The stage moves.** It goes to X 63,500 µm, Y 41,500 µm, both z drives at 0, makes small moves around it, and takes a few pictures. Make sure nothing on the stage can be damaged.
-- **The saved settings stay as they are.** The wizard is checked in a copy of the settings folder.
-- **The controller's `stellaris` now points at the clone.** Keep the clone, or register the installed driver again with the command above.
-
-Every line of the summary should say `OK`. The reports are in `ZMART-drivers/zmart_drivers/leica/stellaris/navigator_expert/testing/report/`. Run the same command on the microscope itself only after it passes on the simulator.
 
 ## 3. Run the notebook
 
