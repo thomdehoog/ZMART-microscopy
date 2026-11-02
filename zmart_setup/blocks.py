@@ -125,15 +125,36 @@ def install_the_blocks(shell, record, prefix: Path, conda_exe: str, releases: Re
 
 
 def clone(shell, record, prefix: Path, conda_exe: str, releases: Releases, one: Clone) -> bool:
-    """Clone a block's repository next to ZMART Microscopy, at its release, unless it is there already."""
+    """Clone a block's repository next to ZMART Microscopy, at its release.
+
+    A clone that is already there is moved to the release, so that a setup
+    after a new release runs the new release's workflows too; a clone with
+    changes of its own is left as it is, and said so.
+    """
     what = f"{BLOCKS[one.block]}, next to ZMART Microscopy"
     ref = releases.refs[one.block]
+    address = f"https://github.com/{releases.github}/{BLOCKS[one.block]}"
+    env = conda.environment_for(prefix, conda_exe)
     if one.folder.exists():
-        record.worked(what, f"{one.folder} is already there and is kept")
+        changed = shell.run(["git", "-C", one.folder, "status", "--porcelain", "--untracked-files=no"],
+                            env=env, quiet=True)
+        if not changed.ok or changed.output.strip():
+            record.failed(what, f"{one.folder} is there with changes of its own, so it is not moved to {ref}",
+                          "keep the changes elsewhere, or remove the folder, and run setup_zmart.py again",
+                          changed.shown, changed.tail)
+            return False
+        done = shell.run(["git", "-C", one.folder, "fetch", "--depth", "1", address,
+                          f"refs/tags/{ref}:refs/tags/{ref}"], env=env, quiet=True)
+        if done.ok:
+            done = shell.run(["git", "-C", one.folder, "checkout", "--quiet", ref], env=env, quiet=True)
+        if not done.ok:
+            record.failed(what, f"{one.folder} could not be moved to {ref}", "check the internet connection "
+                          f"and that {ref} exists on github.com/{releases.github}; see the log",
+                          done.shown, done.tail)
+            return False
+        record.worked(what, f"{one.folder} is at {ref}")
         return True
-    done = shell.run(["git", "clone", "--branch", ref, "--depth", "1",
-                      f"https://github.com/{releases.github}/{BLOCKS[one.block]}", one.folder],
-                     env=conda.environment_for(prefix, conda_exe))
+    done = shell.run(["git", "clone", "--branch", ref, "--depth", "1", address, one.folder], env=env)
     if not done.ok:
         record.failed(what, f"git could not clone it at {ref}", "check the internet connection and that "
                       f"{ref} exists on github.com/{releases.github}; see the log", done.shown, done.tail)

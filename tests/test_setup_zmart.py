@@ -196,6 +196,8 @@ class AStandInComputer:
         text = " ".join(command)
         if command[1:3] == ["env", "list"]:
             return self._ok({"envs": [str(folder) for folder in self.environments.values()]})
+        if command[0] == "git" and "status" in command and self.broken == "clone":
+            return Done(command, 0, " M examples/target_acquisition/flow.ts\n")
         if command[1:3] == ["info", "--json"]:
             return self._ok({"root_prefix": "/opt/conda", "envs_dirs": ["/opt/conda/envs"]})
         if command[1:3] == ["env", "create"]:
@@ -320,6 +322,19 @@ def test_a_setup_that_fails_names_the_part_and_hands_over_to_the_doctor(a_setup)
     failed = [one for one in report["outcomes"] if one["state"] == "did not work"]
     assert failed[0]["what"] == "the environment zmart-for-non-coders"
     assert "CondaHTTPError" in failed[0]["output"]
+
+
+def test_a_clone_is_moved_to_the_release_unless_it_holds_changes_of_its_own(a_setup):
+    code, report, said, computer = a_setup("--no-coder", "--microscope", "mock", "--no-cellpose")
+    asked = [" ".join(map(str, cmd)) for cmd in computer.commands]
+    assert any("checkout --quiet " + RELEASES.refs["zmart-interface"] in one for one in asked)
+
+    code, report, said, computer = a_setup("--yes", broken="clone")
+    assert code == 1
+    failed = [one for one in report["outcomes"] if one["state"] == "did not work"]
+    assert failed[0]["what"] == "ZMART-interface, next to ZMART Microscopy"
+    assert "changes of its own" in failed[0]["found"]
+    assert not any("checkout" in " ".join(map(str, cmd)) for cmd in computer.commands)
 
 
 def test_a_step_that_does_not_load_is_named(a_setup):
