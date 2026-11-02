@@ -35,7 +35,7 @@ pip install "zmart-analysis @ git+https://github.com/ZMB-UZH/ZMART-analysis@v0.6
 conda env create -f analysis/environments/classical.yml
 ```
 
-## 2. Set up the driver
+## 2. Set up the driver and controller
 
 Set up the driver once for this microscope, as its manual describes: [setting up the driver](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b8/zmart_drivers/leica/stellaris/navigator_expert/README.md#setting-up-the-driver). Before the first experiment, run its [checks at the microscope](https://github.com/ZMB-UZH/ZMART-drivers/blob/v0.7.0b8/zmart_drivers/leica/stellaris/navigator_expert/testing/hardware/README.md).
 
