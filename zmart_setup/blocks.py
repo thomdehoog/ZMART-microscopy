@@ -72,7 +72,16 @@ def make_the_environment(shell, record, conda_exe: str, environment: Environment
     what = f"the environment {environment.name}"
     found = conda.environments(shell, conda_exe)
     if environment.name in found:
-        record.worked(what, f"already on this computer, at {found[environment.name]}, and is used")
+        # Brought up to its file: what the file gained since it was made (a
+        # package the workflow now needs) reaches it, and nothing is removed.
+        done = shell.run([conda_exe, "env", "update", "--name", environment.name, "--file", environment.file])
+        if not done.ok:
+            record.failed(what, f"conda could not bring it up to {environment.file.name}",
+                          "see what conda said in the log; the install doctor knows the usual causes",
+                          done.shown, done.tail)
+            return None
+        record.worked(what, f"already on this computer, at {found[environment.name]}, and brought up "
+                      f"to {environment.file.name}")
         return found[environment.name]
     done = shell.run([conda_exe, "env", "create", "--file", environment.file])
     found = conda.environments(shell, conda_exe)

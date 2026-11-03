@@ -12,3 +12,4 @@ dependencies:
   - jupyterlab
   - matplotlib   # the notebook shows each image as it is taken
   - tifffile
+  - ome-types    # the OME description inside an OME-TIFF, which the analysis steps read

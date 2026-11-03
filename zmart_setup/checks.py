@@ -4,7 +4,9 @@ Each check runs a short program in the ZMART environment's own Python, the one
 the start files use, and says plainly whether it worked:
 
 1. **The blocks** are installed at the releases this copy of ZMART Microscopy
-   names, and ``pip check`` finds nothing that does not fit.
+   names, and ``pip check`` finds nothing that does not fit; and each
+   environment reads the OME description of an OME-TIFF, as the previews and
+   the notebook do with a run the microscope keeps as OME-TIFF.
 2. **The operator window** finds our workflows and the page built from them.
 3. **The operator window's background program** (the bridge) starts, hands out
    the page, and lists the microscopes, the mock among them. This is the
@@ -35,6 +37,21 @@ from . import conda
 from .blocks import which_blocks
 from .layout import CODER, CODERS, OPERATOR, clones
 from .releases import Releases
+
+#: Writes a small OME-TIFF and reads its OME description back, the way the
+#: analysis steps read one: what a run kept as OME-TIFF needs besides the pixels.
+OME_TIFF = """
+import json, tempfile
+from pathlib import Path
+import numpy as np, tifffile
+from ome_types import from_xml
+path = Path(tempfile.mkdtemp(prefix="zmart-check-ome-")) / "check.ome.tif"
+tifffile.imwrite(path, np.zeros((2, 8, 8), dtype=np.uint16), ome=True,
+                 metadata={"axes": "CYX", "PhysicalSizeX": 0.5, "PhysicalSizeXUnit": "µm"})
+with tifffile.TiffFile(path) as tif:
+    pixels = from_xml(tif.ome_metadata).images[0].pixels
+print(json.dumps({"channels": pixels.size_c, "pixel_size_um": pixels.physical_size_x}))
+"""
 
 #: Answers the installed version of each block named on the command line, as JSON.
 VERSIONS = """
@@ -188,6 +205,15 @@ def run_all(shell, record, *, operator: Path, coder: Path | None, conda_exe: str
             record.worked(what, "nothing is missing or at a wrong version")
         else:
             record.failed(what, "pip found packages that do not fit", "see what pip check said in the log",
+                          done.shown, done.tail)
+        done = in_it(OME_TIFF, timeout=120)
+        said = _last_json(done.output)
+        what = f"{environment.name} reads an OME-TIFF's description"
+        if said and said.get("channels") == 2 and said.get("pixel_size_um") == 0.5:
+            record.worked(what, "ome-types reads it back, as the previews and the notebook do")
+        else:
+            record.failed(what, "it could not read the OME description of an OME-TIFF",
+                          f"run setup_zmart.py again; ome-types must be in {environment.name}; see the log",
                           done.shown, done.tail)
 
     # 2. Our workflows, and their page.

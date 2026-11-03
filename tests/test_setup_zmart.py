@@ -214,6 +214,10 @@ class AStandInComputer:
         program = command[command.index("-c") + 1]
         if program == blocks.WHAT_THE_BLOCKS_NEED:
             return Done(command, 0, "numpy>=1.24\nzarr>=3\n")
+        if program == checks.OME_TIFF:
+            if self.broken == "ome" and "zmart-for-coders" in command[0]:
+                return Done(command, 1, "ModuleNotFoundError: No module named 'ome_types'\n")
+            return self._ok({"channels": 2, "pixel_size_um": 0.5})
         if program == checks.VERSIONS:
             return self._ok({block: RELEASES.version(block) for block in command[command.index("-c") + 2:]})
         if program == checks.THE_WORKFLOWS:
@@ -335,6 +339,32 @@ def test_a_clone_is_moved_to_the_release_unless_it_holds_changes_of_its_own(a_se
     assert failed[0]["what"] == "ZMART-interface, next to ZMART Microscopy"
     assert "changes of its own" in failed[0]["found"]
     assert not any("checkout" in " ".join(map(str, cmd)) for cmd in computer.commands)
+
+
+def test_both_environments_read_an_ome_tiffs_description(a_setup):
+    code, report, said, _ = a_setup("--coder", "--microscope", "mock", "--no-cellpose")
+    assert code == 0, said
+    read = [one["what"] for one in report["outcomes"] if "reads an OME-TIFF" in one["what"]]
+    assert read == ["zmart-for-non-coders reads an OME-TIFF's description",
+                    "zmart-for-coders reads an OME-TIFF's description"]
+
+    code, report, said, _ = a_setup("--coder", "--microscope", "mock", "--no-cellpose", broken="ome")
+    assert code == 1
+    failed = [one for one in report["outcomes"] if one["state"] == "did not work"]
+    assert [one["what"] for one in failed] == ["zmart-for-coders reads an OME-TIFF's description"]
+
+
+def test_an_environment_that_is_there_is_brought_up_to_its_file(tmp_path):
+    from zmart_setup.record import Record
+
+    record = Record(tmp_path / "local")
+    computer = AStandInComputer(record)
+    computer.environments[layout.CODER.name] = Path("/opt/conda/envs") / layout.CODER.name
+    prefix = blocks.make_the_environment(computer, record, "conda", layout.CODER)
+    assert prefix == computer.environments[layout.CODER.name]
+    updated = [cmd for cmd in computer.commands if cmd[1:3] == ["env", "update"]]
+    assert updated and str(layout.CODER.file) in updated[0]
+    assert not [cmd for cmd in computer.commands if cmd[1:3] == ["env", "create"]]
 
 
 def test_a_step_that_does_not_load_is_named(a_setup):
