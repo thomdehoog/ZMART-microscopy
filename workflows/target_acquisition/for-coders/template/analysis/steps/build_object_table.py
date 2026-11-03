@@ -166,7 +166,7 @@ def _image_centre(first_pixel_xy_um, image_size_px, pixel_size_um) -> list[float
     if first_pixel_xy_um is None:
         raise ValueError(
             "input missing required geometry field 'tile_stage_xy_um': only an OME-Zarr "
-            "image records where it lies on the stage."
+            "image, or an OME-TIFF carrying ZMART's note, records where it lies on the stage."
         )
 
     return [

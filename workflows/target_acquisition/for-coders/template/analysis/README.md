@@ -9,10 +9,10 @@ Finds the objects in an overview image, measures each one, and returns a table w
 ## Input
 
 ```python
-{"image_path": "path/to/image.ome.zarr"}
+{"image_path": "path/to/image.ome.tif"}
 ```
 
-The OME-Zarr position the driver saved. The pixel size and where the image lies on the stage come from its metadata.
+The position the driver saved: an OME-TIFF file, or an OME-Zarr image. The pixel size and where the image lies on the stage come from its metadata (for an OME-TIFF, from ZMART's note inside the file).
 
 ## Output
 

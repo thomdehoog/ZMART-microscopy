@@ -21,8 +21,10 @@ Publishes under ``pipeline_data["read_images"]``::
     pixel_size_um    [x, y], when the file records it in micrometres
     first_pixel_xy_um
                      where the centre of the first pixel lies on the stage,
-                     [x, y], when the image is OME-Zarr: OME-NGFF defines this
-                     placement, a TIFF's recorded position does not
+                     [x, y], when the image is OME-Zarr, or an OME-TIFF that
+                     carries ZMART's note (``zmart/position``) holding the same
+                     OME-Zarr description: OME-NGFF defines this placement, a
+                     TIFF's own recorded position does not
     sha256           a digest of the file or position, for the record
 
 ``load_plane`` is also how the ZMART interface reads its previews, so a
@@ -45,6 +47,11 @@ METADATA = {
 
 # Cellpose takes one plane, or up to three channels of one
 MAX_CHANNELS = 3
+
+# ZMART's note inside an OME-TIFF position: a MapAnnotation in this namespace
+# whose entry "multiscales" holds the OME-Zarr description the same position
+# would carry as OME-Zarr. Such a file is placed by it, by OME-NGFF's rules.
+ZMART_NOTE = "zmart/position"
 
 # Metric length units, to express a stage position recorded in one unit in
 # the unit of the pixel size
@@ -84,7 +91,9 @@ def run(pipeline_data: dict, state: dict, **params) -> dict:
         "image_size_px": [int(image.shape[1]), int(image.shape[0])],
         "pixel_size_um": _xy_in_micrometres(metadata, "pixel_size"),
         "first_pixel_xy_um": (
-            _xy_in_micrometres(metadata, "origin") if metadata["format"] == "ome-zarr" else None
+            _xy_in_micrometres(metadata, "origin")
+            if metadata["format"] == "ome-zarr" or metadata.get("placed_by") == ZMART_NOTE
+            else None
         ),
         "sha256": _sha256(image_path),
     }
@@ -407,7 +416,9 @@ def _load_tiff(source, level, t, c, z, series):
         levels = chosen_series.levels
 
         try:
-            dataset = levels[_bounded(int(level), len(levels), "level")]
+            chosen_level = _bounded(int(level), len(levels), "level")
+
+            dataset = levels[chosen_level]
 
         except (TypeError, ValueError):
             raise ValueError(
@@ -415,8 +426,10 @@ def _load_tiff(source, level, t, c, z, series):
                 f"has {len(levels)} level(s)."
             ) from None
 
-        # A Zarr view of the TIFF decodes only the tiles behind the plane
-        array = zarr.open(dataset.aszarr(), mode="r")
+        # A Zarr view of the TIFF decodes only the tiles behind the plane. It
+        # is asked of the series by level: when a file keeps smaller copies,
+        # the first level's own view holds every size, not one picture
+        array = zarr.open(chosen_series.aszarr(level=chosen_level), mode="r")
 
         axes = [letter.lower() for letter in dataset.axes]
 
@@ -432,6 +445,19 @@ def _load_tiff(source, level, t, c, z, series):
         downsample = chosen_series.shape[axes.index("y")] / array.shape[axes.index("y")]
 
         pixel_size, unit = _tiff_pixel_size(pixels, downsample)
+
+        origin = _tiff_origin(pixels, chosen, unit)
+
+        placed_by = None
+
+        described = _zmart_level(tif, chosen_level)
+
+        if described is not None:
+            # ZMART wrote this file and said where it lies, by the same rules
+            # as an OME-Zarr position: that description is used as written.
+            pixel_size, origin = described
+            unit = "micrometer"
+            placed_by = ZMART_NOTE
 
         channel_index = chosen.get("c")
 
@@ -453,8 +479,9 @@ def _load_tiff(source, level, t, c, z, series):
                 else None
             ),
             "pixel_size": pixel_size,
-            "origin": _tiff_origin(pixels, chosen, unit),
+            "origin": origin,
             "space_unit": unit,
+            "placed_by": placed_by,
         }
 
         return plane, metadata
@@ -634,15 +661,65 @@ def _tiff_pixel_size(pixels, downsample):
     return sizes, (unit if sizes else None)
 
 
-def _tiff_origin(pixels, chosen, unit):
-    """The stage position the OME Plane entries record for the plane read.
+def _zmart_level(tif, level):
+    """The pixel size and origin of one level, from ZMART's note, or None without one.
 
-    The entry of the chosen t, c and z is used, else the first. The value is
-    passed on as recorded: writers differ on which point of the image it names
-    (the Leica driver writes the field centre, the controller's mock its
-    corner), so it is not a placement. Returns {} when no position was
-    recorded, and None when one was recorded but cannot be put in the pixel
-    size's unit: no coordinate is better than a wrong one.
+    The note's ``multiscales`` entry is the OME-Zarr description of the
+    position: each level's scale, and the centre of its first voxel as its
+    translation, in micrometres, on the axes it names. Returns two dicts
+    keyed by axis name, like an OME-Zarr position's, or None when the file
+    carries no such note or the note does not describe this level.
+    """
+
+    import json
+    import xml.etree.ElementTree as ElementTree
+
+    if not tif.is_ome or not tif.ome_metadata:
+        return None
+
+    try:
+        root = ElementTree.fromstring(tif.ome_metadata)
+    except ElementTree.ParseError:
+        return None
+
+    for note in root.iter():
+        if not (note.tag.endswith("}MapAnnotation") and note.get("Namespace") == ZMART_NOTE):
+            continue
+
+        entries = {entry.get("K"): entry.text for entry in note.iter() if entry.tag.endswith("}M")}
+
+        try:
+            multiscale = json.loads(entries["multiscales"])[0]
+            axes = [axis["name"] for axis in multiscale["axes"]]
+            dataset = next(
+                one for one in multiscale["datasets"] if str(one["path"]) == str(level)
+            )
+            transforms = {one["type"]: one for one in dataset["coordinateTransformations"]}
+            scale = transforms["scale"]["scale"]
+            translation = transforms.get("translation", {}).get("translation", [0.0] * len(axes))
+        except (KeyError, IndexError, TypeError, ValueError, StopIteration):
+            return None
+
+        return (
+            dict(zip(axes, (float(value) for value in scale), strict=False)),
+            dict(zip(axes, (float(value) for value in translation), strict=False)),
+        )
+
+    return None
+
+
+def _tiff_origin(pixels, chosen, unit):
+    """The stage position the OME Plane entries record for the image.
+
+    Y and x come from the entry of the chosen t, c and z, else the first. The
+    height comes from the first plane of the stack (z = 0) of the chosen t
+    and c, so it is the height of the whole stack, as an OME-Zarr position's
+    origin gives it, whichever plane was read. The values are passed on as
+    recorded: writers differ on which point of the image x and y name (the
+    Leica driver writes the field centre, the controller's mock its corner),
+    so they are not a placement. Returns {} when no position was recorded,
+    and None when one was recorded but cannot be put in the pixel size's
+    unit: no coordinate is better than a wrong one.
     """
 
     if pixels is None or not pixels.planes or unit is None:
@@ -650,9 +727,14 @@ def _tiff_origin(pixels, chosen, unit):
 
     plane = next((one for one in pixels.planes if _is_chosen_plane(one, chosen)), pixels.planes[0])
 
+    bottom = next(
+        (one for one in pixels.planes if _is_chosen_plane(one, {**chosen, "z": 0})), plane
+    )
+
     origin = {}
 
     for axis, value, value_unit in (
+        ("z", bottom.position_z, bottom.position_z_unit),
         ("y", plane.position_y, plane.position_y_unit),
         ("x", plane.position_x, plane.position_x_unit),
     ):

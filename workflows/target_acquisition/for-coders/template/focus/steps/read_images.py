@@ -228,9 +228,13 @@ def _tiff_plane(source, level, t, c, z) -> tuple[np.ndarray, dict]:
 
         levels = tif.series[0].levels
 
-        dataset = levels[_bounded(level, len(levels), "level")]
+        chosen = _bounded(level, len(levels), "level")
 
-        array = zarr.open(dataset.aszarr(), mode="r")
+        dataset = levels[chosen]
+
+        # Asked of the series by level: when a file keeps smaller copies,
+        # the first level's own view holds every size, not one picture
+        array = zarr.open(tif.series[0].aszarr(level=chosen), mode="r")
 
         axes = [letter.lower() for letter in dataset.axes]
 
@@ -270,7 +274,7 @@ def _tiff_plane(source, level, t, c, z) -> tuple[np.ndarray, dict]:
             "axes": axes,
             "shape": [int(size) for size in array.shape],
             "pixel_size": _z_spacing(pixels),
-            "origin": {},
+            "origin": _z_origin(pixels),
         }
 
     return plane, metadata
@@ -289,6 +293,34 @@ def _ome_pixels(tif):
     except Exception:
         # Unreadable OME-XML costs the metadata, not the pixels
         return None
+
+
+def _z_origin(pixels) -> dict:
+    """The height of a stack's first plane (z = 0), in the unit of its pixel width, as ``{"z": height}``.
+
+    It is what an OME-Zarr position gives as its origin, so plane heights
+    come out the same from either format. ``{}`` when the file records no
+    height, or one in a unit that cannot be converted: no height is better
+    than a wrong one.
+    """
+
+    if pixels is None:
+        return {}
+
+    first = next((plane for plane in pixels.planes if plane.the_z in (None, 0)), None)
+
+    if first is None or first.position_z is None:
+        return {}
+
+    z_unit, x_unit = _unit_name(first.position_z_unit), _unit_name(pixels.physical_size_x_unit)
+
+    if z_unit is None or z_unit == x_unit:
+        return {"z": float(first.position_z)}
+
+    if z_unit not in LENGTH_IN_METERS or x_unit not in LENGTH_IN_METERS:
+        return {}
+
+    return {"z": float(first.position_z) * LENGTH_IN_METERS[z_unit] / LENGTH_IN_METERS[x_unit]}
 
 
 def _z_spacing(pixels) -> dict:

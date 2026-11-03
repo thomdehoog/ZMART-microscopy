@@ -10,3 +10,5 @@ dependencies:
   - pip
   - git
   - jupyterlab
+  - matplotlib   # the notebook shows each image as it is taken
+  - tifffile
