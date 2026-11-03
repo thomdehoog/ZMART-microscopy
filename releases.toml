@@ -14,6 +14,6 @@ github = "ZMB-UZH"
 [blocks]
 zmart-controller = "v0.4.0rc9"
 zmart-viewer = "v0.5.0rc11"
-zmart-drivers = "v0.7.0b10"
+zmart-drivers = "v0.7.0b11"
 zmart-analysis = "v0.6.0rc10"
-zmart-interface = "v0.2.0rc6"
+zmart-interface = "v0.2.0rc7"
