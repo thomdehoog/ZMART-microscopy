@@ -4,10 +4,10 @@ This is the path every picture on the operator's canvas takes. A mock
 microscope captures a field through the controller, and its answer must fit
 the controller's contract for an acquisition (``check_acquire_answer``): every
 saved file under ``files``, and under ``planes`` the file, channel, depth,
-moment and stage position of each picture. The interface files the capture
-in the run and keeps it as one OME-Zarr position, reading nothing but
-``files`` and ``planes``: the driver's own OME-Zarr store when it saved one,
-or a store written from its files. The viewer, started beside the run the way
+moment and stage position of each picture. The interface's target acquisition
+workflow files the capture in the run and keeps it as one position, reading
+nothing but ``files`` and ``planes``: the driver's own position when it saved
+one, or one written from its files. The viewer, started beside the run the way
 the interface's bridge starts it -- laid out over the canvas the controller's
 ``get_xyz`` reports per axis, everywhere a picture can show -- opens that
 position and lists it in ``/api/config``, which is where any drawing engine
@@ -38,21 +38,24 @@ CAPTURE_KEEP_AND_SERVE = """
     from pathlib import Path
     from zmart_controller import ZmartController, check_acquire_answer
     import zmart_controller
-    from zmart_interface.workflows.target_acquisition.bridge import pictures, state
-    from zmart_interface.workflows.target_acquisition.bridge.connecting import the_viewers_area
-    from zmart_interface.workflows.target_acquisition.microscope.instrument import Instrument
-    from zmart_interface.workflows.target_acquisition.storage import viewer_service
-    from zmart_interface.workflows.target_acquisition.storage.output import (
+
+    # The workflow lives in the interface's examples folder, not in the package
+    which, output_root, workflows = sys.argv[1], sys.argv[2], sys.argv[3]
+    sys.path.insert(0, workflows)
+    from target_acquisition.bridge import pictures, state
+    from target_acquisition.bridge.connecting import the_viewers_area
+    from target_acquisition.microscope.instrument import Instrument
+    from target_acquisition.storage import viewer_service
+    from target_acquisition.storage.output import (
         move_record_images, position_label, prepare_acquisition, prepare_experiment)
 
-    which, output_root = sys.argv[1], sys.argv[2]
     if which == "interface":
-        from zmart_interface.workflows.target_acquisition import mock_microscope as driver
+        from target_acquisition import mock_microscope as driver
         connection = {**driver.CONNECTION, "output_root": output_root}
     else:
         # The controller's mock is a driver like any other, kept with the
         # controller's tests: installed on this computer, then named.
-        driver = zmart_controller.register_driver(sys.argv[3])
+        driver = zmart_controller.register_driver(sys.argv[4])
         connection = {"output_root": output_root, "mock_timing": "instant"}
     session = Instrument(ZmartController(driver, connection))
     try:
@@ -67,10 +70,10 @@ CAPTURE_KEEP_AND_SERVE = """
             raise SystemExit(f"the capture does not fit the contract: {problems} {answer}")
         record = answer["output"]
         move_record_images(record, prepare_acquisition(state.run, "overview"))
-        pictures.keep_position_as_zarr(record, "overview")
-        if record.get("zarr_error"):
-            raise SystemExit(f"the interface could not keep the capture: {record['zarr_error']}")
-        store = record["zarr"]
+        pictures.keep_the_position(record, "overview")
+        if record.get("position_error"):
+            raise SystemExit(f"the interface could not keep the capture: {record['position_error']}")
+        store = record["position_path"]
     finally:
         session.disconnect()
 
@@ -84,6 +87,11 @@ CAPTURE_KEEP_AND_SERVE = """
     viewer_service.stop()
     print(json.dumps({"store": str(store), "status": status, "config": config}))
 """
+
+
+def _workflows():
+    """The folder the interface's workflows live in: ``examples`` in its checkout."""
+    return checkout("ZMART-interface") / "examples"
 
 
 def _addresses_in(config: dict) -> list[str]:
@@ -121,7 +129,7 @@ def test_a_capture_from_the_interfaces_mock_is_served_by_the_viewer(fresh_python
     The field is taken before anything is moved, which is the first place an
     operator may press Acquire.
     """
-    said = fresh_python(CAPTURE_KEEP_AND_SERVE, "interface", str(tmp_path / "runs"),
+    said = fresh_python(CAPTURE_KEEP_AND_SERVE, "interface", str(tmp_path / "runs"), str(_workflows()),
                         env={"ZMART_MOCK_STATE": str(tmp_path / "instrument.json")})
     write_report("viewer-serves-interface-mock", said)
     _check_served(said)
@@ -129,7 +137,7 @@ def test_a_capture_from_the_interfaces_mock_is_served_by_the_viewer(fresh_python
 
 def test_a_capture_from_the_controllers_mock_is_served_by_the_viewer(fresh_python, tmp_path):
     """The controller's mock (beads) fits the contract, so the interface keeps its capture and the viewer serves it."""
-    said = fresh_python(CAPTURE_KEEP_AND_SERVE, "controller", str(tmp_path / "runs"),
+    said = fresh_python(CAPTURE_KEEP_AND_SERVE, "controller", str(tmp_path / "runs"), str(_workflows()),
                         str(checkout("ZMART-controller") / "tests" / "mock_driver"))
     write_report("viewer-serves-controller-mock", said)
     _check_served(said)
