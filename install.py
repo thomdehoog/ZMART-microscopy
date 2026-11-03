@@ -268,7 +268,7 @@ def analysis_environments(work: Path, steps: str, env: dict) -> list[dict]:
     made = []
     for pair in filter(None, (one.strip() for one in steps.split(","))):
         workflow, step = pair.split(":")
-        described = work / "ZMART-analysis" / "workflows" / workflow / "environments" / f"{step}.yml"
+        described = work / "ZMART-analysis" / "examples" / workflow / "environments" / f"{step}.yml"
         name = f"ZMART--{workflow}--{step}"
         if environment_prefix(env["CONDA_EXE"], name) is not None:
             made.append({

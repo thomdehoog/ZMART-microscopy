@@ -67,7 +67,7 @@ def test_the_engine_scores_a_focus_stack_in_the_focus_environment(
     """The installed engine runs the focus recipe from the clone and finds the sharp plane."""
     from zmart_analysis import Engine
 
-    pipeline = checkout("ZMART-analysis") / "workflows" / "focus" / "pipelines" / "focus.yaml"
+    pipeline = checkout("ZMART-analysis") / "examples" / "focus" / "pipelines" / "focus.yaml"
     engine = Engine()
     try:
         engine.register("focus", str(pipeline), str(a_stack_sharp_at_108_um.parent))
@@ -90,7 +90,7 @@ def test_the_engine_scores_a_focus_stack_in_the_focus_environment(
 
 
 def test_the_interface_reaches_the_engine_the_way_its_focus_map_does(
-    a_stack_sharp_at_108_um, the_focus_environment, monkeypatch
+    a_stack_sharp_at_108_um, the_focus_environment, the_interface_workflows, monkeypatch
 ):
     """The interface's own door to the analysis finds the workflows and gets the same answer.
 
@@ -99,10 +99,10 @@ def test_the_interface_reaches_the_engine_the_way_its_focus_map_does(
     session. This is the call its focus map makes for every point.
     """
     monkeypatch.setenv("ZMART_ANALYSIS_WORKFLOWS", str(checkout("ZMART-analysis")))
-    from zmart_interface.workflows.target_acquisition.analysis.warm import Analysis
-    from zmart_interface.workflows.target_acquisition.analysis.workflows import workflows_root
+    from target_acquisition.analysis.warm import Analysis
+    from target_acquisition.analysis.workflows import workflows_root
 
-    assert workflows_root() == (checkout("ZMART-analysis") / "workflows").resolve()
+    assert workflows_root() == (checkout("ZMART-analysis") / "examples").resolve()
     analysis = Analysis(output=str(a_stack_sharp_at_108_um.parent))
     try:
         found = analysis.run("focus", {"image_path": str(a_stack_sharp_at_108_um),

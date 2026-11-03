@@ -111,7 +111,7 @@ VALIDATE = """
     which = sys.argv[1]
     output_root = tempfile.mkdtemp(prefix="zmart-mock-")
     if which == "interface":
-        from zmart_interface.workflows.target_acquisition import mock_microscope as driver
+        from target_acquisition import mock_microscope as driver
         connection = {**driver.CONNECTION, "output_root": output_root}
     else:
         driver = zmart_controller.register_driver(sys.argv[2])
@@ -126,7 +126,7 @@ def test_the_controllers_mock_passes_validate_driver(fresh_python):
     assert said["problems"] == [], said
 
 
-def test_the_interfaces_mock_microscope_passes_validate_driver(fresh_python, tmp_path):
+def test_the_interfaces_mock_microscope_passes_validate_driver(fresh_python, the_interface_workflows, tmp_path):
     """The interface's mock (kidney) answers every get_* command the way the contract says.
 
     Its own state file is kept in this check's folder, not in anyone's home.
@@ -142,7 +142,7 @@ BOTH_MOCKS = """
     from pathlib import Path
     import zmart_controller
     from zmart_controller.registry import find_driver
-    from zmart_interface.workflows.target_acquisition import mock_microscope
+    from target_acquisition import mock_microscope
     zmart_controller.register_driver(sys.argv[1])
     zmart_controller.register_driver(Path(mock_microscope.__file__).parent)
     listed = zmart_controller.get_instruments()
@@ -151,7 +151,7 @@ BOTH_MOCKS = """
 """
 
 
-def test_the_two_mocks_stand_side_by_side(fresh_python):
+def test_the_two_mocks_stand_side_by_side(fresh_python, the_interface_workflows):
     """With both mocks installed on the computer, both are listed, each calling its own plugin.
 
     The controller's mock is ``"mock"``, the interface's ``"interface-mock"``,
@@ -160,5 +160,5 @@ def test_the_two_mocks_stand_side_by_side(fresh_python):
     said = fresh_python(BOTH_MOCKS, _the_controllers_mock())
     assert set(said["listed"]) == {"mock", "interface-mock"}, said["listed"]
     assert said["plugin_from"]["interface-mock"].startswith(
-        "zmart_interface.workflows.target_acquisition.mock_microscope"), said["plugin_from"]
+        "target_acquisition.mock_microscope"), said["plugin_from"]
     assert said["plugin_from"]["mock"].startswith("mock_driver."), said["plugin_from"]

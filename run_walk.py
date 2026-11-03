@@ -5,7 +5,7 @@ Run it with the Python of the ``zmart-integration`` environment, after ``install
     python run_walk.py [--output FOLDER]
 
 The walk is the interface's own acceptance test,
-``zmart_interface/workflows/target_acquisition/walk.spec.ts``: Playwright
+``examples/target_acquisition/walk.spec.ts``: Playwright
 opens the operator page in Chromium and presses through all ten steps (connect,
 carrier, overview plan, focus map, overview scan, detection, gating, target
 areas, target acquisition, and the protocol) on the interface's mock
@@ -18,6 +18,8 @@ checks. So the walk is told:
 
 - ``PYTHON``: this environment's Python, which the walk starts the bridge
   with (otherwise it would take whichever ``python`` is first on the PATH);
+- ``ZMART_INTERFACE_WORKFLOWS``: the interface clone's ``examples`` folder,
+  where the target acquisition workflow lives;
 - ``ZMART_ANALYSIS_WORKFLOWS``: where the analysis workflows are cloned;
 - ``ZMART_MICROSCOPY_ROOT``: an empty configuration folder of the walk's own,
   so drivers remembered on this computer neither appear nor change;
@@ -51,7 +53,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 WORK = Path(os.environ.get("ZMART_INTEGRATION_WORK", HERE / "work")).resolve()
-WALK = "zmart_interface/workflows/target_acquisition/walk.spec.ts"
+WALK = "examples/target_acquisition/walk.spec.ts"
 WINDOWS = platform.system() == "Windows"
 
 
@@ -76,7 +78,7 @@ console.log(JSON.stringify({ ...python, imported: said.trim() }));
 """
 
 #: The walk's file that holds ``bridgePython``, how it starts the bridge.
-LIVE_BRIDGE = "zmart_interface/workflows/target_acquisition/testing/python.ts"
+LIVE_BRIDGE = "examples/target_acquisition/testing/python.ts"
 
 
 def where_the_walks_bridge_finds_the_interface(interface: Path, env: dict) -> dict:
@@ -104,6 +106,7 @@ def walk_environment(output: Path) -> dict:
         **os.environ,
         "PATH": os.pathsep.join([*this_environments_programs(), os.environ.get("PATH", "")]),
         "PYTHON": sys.executable,
+        "ZMART_INTERFACE_WORKFLOWS": str(WORK / "ZMART-interface" / "examples"),
         "ZMART_ANALYSIS_WORKFLOWS": str(WORK / "ZMART-analysis"),
         "ZMART_MICROSCOPY_ROOT": str(configuration),
         "ZMART_TEST_OUTPUT": str(output / "test-results"),

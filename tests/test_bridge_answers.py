@@ -54,7 +54,7 @@ def _post(url: str, payload: dict) -> dict:
 
 
 @pytest.fixture
-def a_bridge(tmp_path):
+def a_bridge(tmp_path, the_interface_workflows):
     """The installed bridge, on a free port, writing into this check's folder.
 
     It is started the way the operator window starts it, with the
@@ -65,7 +65,7 @@ def a_bridge(tmp_path):
     the window's place itself (its lock names this Python) and no window is
     started.
     """
-    from zmart_interface.workflows.target_acquisition.mock_microscope import driver
+    from target_acquisition.mock_microscope import driver
 
     state_file = tmp_path / "instrument.json"
     driver.claim_the_window(os.getpid(), state_file)

@@ -88,13 +88,13 @@ def test_each_clone_holds_the_same_code_as_the_installed_package(repository):
     )
 
 
-def test_the_interface_accepts_the_installed_viewer():
+def test_the_interface_accepts_the_installed_viewer(the_interface_workflows):
     """The interface's own version check accepts the viewer that pip installed beside it.
 
     The interface refuses a viewer outside the versions it was tested with,
     and says so only when a run is connected. Asking here finds it before.
     """
-    from zmart_interface.workflows.target_acquisition.storage import viewer_service
+    from target_acquisition.storage import viewer_service
 
     provenance = viewer_service.viewer_provenance()
     viewer_service._the_viewers_make_server()

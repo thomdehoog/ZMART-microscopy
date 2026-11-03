@@ -79,6 +79,22 @@ def a_clean_configuration_folder(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def the_interface_workflows(monkeypatch):
+    """The interface's workflows, from its clone in work/, for this Python and every program it starts.
+
+    The interface brings no workflow of its own: target acquisition lives in
+    the ``examples`` folder of its clone. The bridge finds that folder through
+    ``ZMART_INTERFACE_WORKFLOWS``, and Python imports the workflow from it as
+    ``target_acquisition``.
+    """
+    folder = checkout("ZMART-interface") / "examples"
+    monkeypatch.setenv("ZMART_INTERFACE_WORKFLOWS", str(folder))
+    monkeypatch.setenv("PYTHONPATH", str(folder))
+    monkeypatch.syspath_prepend(str(folder))
+    return folder
+
+
+@pytest.fixture
 def fresh_python(tmp_path):
     """Run a short program in a new Python of this environment, and return what it printed as JSON.
 
